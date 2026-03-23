@@ -11,28 +11,43 @@ export async function POST(request, { params }) {
     const { id: patientId } = await params;
     const body = await request.json();
     const { medications, diagnosis, notes, date, surgeonFee } = body;
-    
+
     if (!medications || !date) {
       return NextResponse.json({ error: 'Medications and date are required' }, { status: 400 });
     }
 
-    const db = getDB();
-    const patient = db.prepare('SELECT * FROM patients WHERE id = ?').get(patientId);
-    if (!patient) return NextResponse.json({ error: 'Patient not found' }, { status: 404 });
+    const supabase = getDB();
+    const { data: patient, error: patientError } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('id', patientId)
+      .single();
 
-    let settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
-    if (!settings) {
-      settings = { clinic_name: 'Victoria Dental Care', tagline: 'Premium Dental Solutions', address: 'No 1/334 Injambakkam, Opp to Suga Jeeva Peralayam, Ammathi, Perumal Koil St, Chennai, Tamil Nadu 600115', phone: '+91 9176733358', email: 'victoriadentalcare2015@gmail.com', accent_color: '#007aff' };
-    }
+    if (patientError || !patient) return NextResponse.json({ error: 'Patient not found' }, { status: 404 });
+
+    const { data: settingsData } = await supabase
+      .from('settings')
+      .select('*')
+      .eq('id', 1)
+      .single();
+
+    let settings = settingsData || { 
+      clinic_name: 'Victoria Dental Care', 
+      tagline: 'Premium Dental Solutions', 
+      address: 'No 1/334 Injambakkam, Opp to Suga Jeeva Peralayam, Ammathi, Perumal Koil St, Chennai, Tamil Nadu 600115', 
+      phone: '+91 9176733358', 
+      email: 'victoriadentalcare2015@gmail.com', 
+      accent_color: '#007aff' 
+    };
 
     const rxId = uuidv4();
     const pdfFilename = `rx-${rxId}.pdf`;
     const pdfDir = path.join(process.cwd(), 'public', 'pdfs');
-    
+
     if (!fs.existsSync(pdfDir)) {
       fs.mkdirSync(pdfDir, { recursive: true });
     }
-    
+
     const pdfPath = path.join(pdfDir, pdfFilename);
     const pdfUrl = `/api/pdfs/${pdfFilename}`;
 
@@ -54,7 +69,7 @@ export async function POST(request, { params }) {
       } else {
         doc.font('Helvetica').fontSize(10).fillColor(textColor);
       }
-      
+
       doc.text(desc, 50, y, { width: 250 });
       doc.text(qty, 300, y, { width: 80, align: 'center' });
       doc.text(rate, 380, y, { width: 80, align: 'center' });
@@ -65,7 +80,7 @@ export async function POST(request, { params }) {
     // HEADER
     // ═══════════════════════════════════════════
     doc.rect(0, 0, 612, 10).fill(primaryColor);
-    
+
     // Left: Clinic Info
     doc.fontSize(18).font('Helvetica-Bold').fillColor(textColor).text(settings.clinic_name || 'Victoria Dental Care', 50, 50);
     doc.fontSize(10).font('Helvetica').fillColor(secondaryColor).text(settings.tagline || 'Premium Dental Solutions', 50, 75);
@@ -89,7 +104,7 @@ export async function POST(request, { params }) {
     // ═══════════════════════════════════════════
     let currentY = Math.max(leftSideBottom, rightSideBottom) + 20;
     if (currentY < 200) currentY = 200;
-    
+
     doc.rect(50, currentY, 512, 2).fill(textColor);
     currentY += 10;
     drawTableRow(currentY, 'DESCRIPTION', 'QUANTITY', 'RATE', 'TOTAL', true);
@@ -113,7 +128,7 @@ export async function POST(request, { params }) {
     medsArray.forEach((med, i) => {
       const itemPrice = parseFloat(med.price) || 0;
       subtotal += itemPrice;
-      
+
       // Zebra stripe (offset by surgeon fee row)
       const rowIndex = surgeonFeeNum > 0 ? i + 1 : i;
       if (rowIndex % 2 === 1) {
@@ -134,7 +149,7 @@ export async function POST(request, { params }) {
     doc.font('Helvetica').fontSize(10).fillColor(secondaryColor);
     doc.text('Sub Total:', 350, currentY, { width: 100 });
     doc.fillColor(textColor).text(`Rs. ${subtotal.toFixed(2)}`, 450, currentY, { width: 100, align: 'right' });
-    
+
     currentY += 15;
     doc.fillColor(secondaryColor).text('Tax (0%):', 350, currentY, { width: 100 });
     doc.fillColor(textColor).text('Rs. 0.00', 450, currentY, { width: 100, align: 'right' });
@@ -181,7 +196,7 @@ export async function POST(request, { params }) {
 
     // Bottom Band
     doc.rect(0, 832, 612, 10).fill(primaryColor);
-    
+
     doc.end();
 
     // Wait for the PDF to finish writing
@@ -189,21 +204,41 @@ export async function POST(request, { params }) {
 
     // Save to DB
     const medicationsStr = typeof medications === 'string' ? medications : JSON.stringify(medications);
-    db.prepare(
-      'INSERT INTO prescriptions (id, patient_id, medications, diagnosis, notes, pdf_url, total_amount, surgeon_fee, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(rxId, patientId, medicationsStr, diagnosis || '', notes || '', pdfUrl, subtotal, surgeonFeeNum, date);
+    
+    const { data: newRx, error: rxError } = await supabase
+      .from('prescriptions')
+      .insert([
+        {
+          id: rxId,
+          patient_id: patientId,
+          medications: medicationsStr,
+          diagnosis: diagnosis || '',
+          notes: notes || '',
+          pdf_url: pdfUrl,
+          total_amount: subtotal,
+          surgeon_fee: surgeonFeeNum,
+          date: date
+        }
+      ])
+      .select()
+      .single();
 
-    const newRx = db.prepare('SELECT * FROM prescriptions WHERE id = ?').get(rxId);
+    if (rxError) throw rxError;
 
     // Log activity
-    const actId = Math.random().toString(36).substring(2, 9);
-    db.prepare('INSERT INTO activity_log (id, text, subtext, patient_id) VALUES (?, ?, ?, ?)')
-      .run(actId, `E-Bill generated for ${patient.name}`, `Amount: ₹${subtotal.toFixed(2)}`, patientId);
+    await supabase.from('activity_log').insert([
+      {
+        id: Math.random().toString(36).substring(2, 9),
+        text: `E-Bill generated for ${patient.name}`,
+        subtext: `Amount: ₹${subtotal.toFixed(2)}`,
+        patient_id: patientId
+      }
+    ]);
 
     // Send WhatsApp with PDF Link
     const pdfPublicLink = `http://localhost:3000${pdfUrl}`;
     const message = `Hello ${patient.name}, your e-prescription from Victoria Dental Care is ready. Download it here: ${pdfPublicLink}`;
-    
+
     if (patient.phone) {
       await sendWhatsAppReminder(patient.phone, message);
     }

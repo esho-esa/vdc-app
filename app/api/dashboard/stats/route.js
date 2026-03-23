@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 
 export async function GET() {
   try {
-    const db = getDB();
+    const supabase = getDB();
     const today = new Date().toISOString().split('T')[0];
 
     // Check role for revenue visibility
@@ -22,22 +22,31 @@ export async function GET() {
 
     if (isAdmin) {
       // Detailed Revenue
-      const treatStats = db.prepare(`
-        SELECT 
-          SUM(t.treatment_fee) as treatment,
-          SUM(t.surgery_fee) as surgery,
-          SUM(t.consultation_fee) as consultation
-        FROM treatments t
-        JOIN patients p ON t.patient_id = p.id
-        WHERE p.is_deleted = 0
-      `).get();
+      // Note: Supabase doesn't support complex aggregates on joins easily without RPC, 
+      // but we can join with patients!inner and filter.
+      const { data: treatData, error: treatError } = await supabase
+        .from('treatments')
+        .select('treatment_fee, surgery_fee, consultation_fee, patients!inner(is_deleted)')
+        .eq('patients.is_deleted', 0);
 
-      const rxRevenue = db.prepare(`
-        SELECT SUM(r.total_amount) as total, SUM(r.surgeon_fee) as surgeonFee
-        FROM prescriptions r
-        JOIN patients p ON r.patient_id = p.id
-        WHERE p.is_deleted = 0
-      `).get();
+      const { data: rxData, error: rxError } = await supabase
+        .from('prescriptions')
+        .select('total_amount, surgeon_fee, patients!inner(is_deleted)')
+        .eq('patients.is_deleted', 0);
+
+      if (treatError) throw treatError;
+      if (rxError) throw rxError;
+
+      const treatStats = treatData.reduce((acc, row) => ({
+        treatment: acc.treatment + (row.treatment_fee || 0),
+        surgery: acc.surgery + (row.surgery_fee || 0),
+        consultation: acc.consultation + (row.consultation_fee || 0)
+      }), { treatment: 0, surgery: 0, consultation: 0 });
+
+      const rxRevenue = rxData.reduce((acc, row) => ({
+        total: acc.total + (row.total_amount || 0),
+        surgeonFee: acc.surgeonFee + (row.surgeon_fee || 0)
+      }), { total: 0, surgeonFee: 0 });
 
       revenueData.treatment = treatStats.treatment || 0;
       revenueData.surgery = (treatStats.surgery || 0) + (rxRevenue.surgeonFee || 0);
@@ -49,13 +58,13 @@ export async function GET() {
     }
 
     // Today's Patients Status Counts
-    const statusCounts = db.prepare(`
-      SELECT a.status, COUNT(*) as count 
-      FROM appointments a
-      JOIN patients p ON a.patient_id = p.id
-      WHERE a.date = ? AND p.is_deleted = 0
-      GROUP BY a.status
-    `).all(today);
+    const { data: statusData, error: statusError } = await supabase
+      .from('appointments')
+      .select('status, patients!inner(is_deleted)')
+      .eq('date', today)
+      .eq('patients.is_deleted', 0);
+
+    if (statusError) throw statusError;
 
     const stats = {
       pending: 0,
@@ -64,20 +73,26 @@ export async function GET() {
       checkout: 0,
       confirmed: 0
     };
-    statusCounts.forEach(row => {
+    
+    statusData.forEach(row => {
       if (stats.hasOwnProperty(row.status)) {
-        stats[row.status] = row.count;
+        stats[row.status] = (stats[row.status] || 0) + 1;
       }
     });
 
     // Total Patients (excluding deleted)
-    const totalPatientsRow = db.prepare('SELECT COUNT(*) as total FROM patients WHERE is_deleted = 0').get();
+    const { count: totalPatients, error: countError } = await supabase
+      .from('patients')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_deleted', 0);
+
+    if (countError) throw countError;
 
     return NextResponse.json({
       revenue: isAdmin ? revenueData.total : null,
       revenueDetails: isAdmin ? revenueData : null,
       statusCounts: stats,
-      totalPatients: totalPatientsRow.total,
+      totalPatients: totalPatients,
       isAdmin
     });
   } catch (error) {

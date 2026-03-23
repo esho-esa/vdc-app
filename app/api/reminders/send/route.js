@@ -11,9 +11,18 @@ export async function POST(request) {
       return NextResponse.json({ error: 'patientPhone and patientName are required' }, { status: 400 });
     }
 
-    const db = getDB();
-    const settings = db.prepare('SELECT reminder_template FROM settings WHERE id = 1').get();
+    const supabase = getDB();
+    const { data: settings, error } = await supabase
+      .from('settings')
+      .select('reminder_template')
+      .eq('id', 1)
+      .single();
+
     let template = settings?.reminder_template || `Hello [Name], this is a reminder for your dental appointment [Date] at [Time]. Please arrive 10 minutes early. 🦷`;
+ 
+    if (error && error.code !== 'PGRST116') {
+      console.warn('Error fetching reminder template:', error);
+    }
 
     // Replace placeholders
     const message = template

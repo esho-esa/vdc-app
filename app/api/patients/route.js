@@ -48,7 +48,23 @@ export async function POST(request) {
 
     if (error) throw error
 
-    return NextResponse.json(data[0], { status: 201 })
+    // Activity Logging for new patients
+    const actId = Math.random().toString(36).substring(2, 9);
+    await supabase.from('activity_log').insert([
+      {
+        id: actId,
+        text: `New patient registered: ${body.name}`,
+        subtext: `Age: ${body.age || 'N/A'}`,
+        patient_id: id
+      }
+    ]);
+
+    const patient = {
+      ...data[0],
+      medicalHistory: data[0].medical_history
+    };
+
+    return NextResponse.json(patient, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

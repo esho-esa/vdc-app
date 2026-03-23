@@ -12,37 +12,40 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: 'Description and date are required' }, { status: 400 });
     }
 
-    const db = getDB();
+    const supabase = getDB();
     const treatmentId = `t-${uuidv4().substring(0, 8)}`;
     const totalCost = (parseFloat(treatmentFee) || 0) + (parseFloat(surgeryFee) || 0) + (parseFloat(consultationFee) || 0);
 
-    const stmt = db.prepare(`
-      INSERT INTO treatments (id, patient_id, description, cost, treatment_fee, surgery_fee, consultation_fee, date, dentist)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const { data: newTreatment, error: treatError } = await supabase
+      .from('treatments')
+      .insert([
+        {
+          id: treatmentId,
+          patient_id: id,
+          description,
+          cost: totalCost,
+          treatment_fee: parseFloat(treatmentFee) || 0,
+          surgery_fee: parseFloat(surgeryFee) || 0,
+          consultation_fee: parseFloat(consultationFee) || 0,
+          date,
+          dentist: dentist || 'Dr. Anand'
+        }
+      ])
+      .select()
+      .single();
 
-    stmt.run(
-      treatmentId,
-      id,
-      description,
-      totalCost,
-      parseFloat(treatmentFee) || 0,
-      parseFloat(surgeryFee) || 0,
-      parseFloat(consultationFee) || 0,
-      date,
-      dentist || 'Dr. Anand'
-    );
-
-    const newTreatment = db.prepare('SELECT * FROM treatments WHERE id = ?').get(treatmentId);
+    if (treatError) throw treatError;
     
     // Add activity log entry
-    db.prepare('INSERT INTO activity_log (id, text, subtext, color, patient_id) VALUES (?, ?, ?, ?, ?)').run(
-      `act-${uuidv4().substring(0, 8)}`,
-      `New treatment recorded: ${description}`,
-      `Total: ₹${totalCost}`,
-      'green',
-      id
-    );
+    await supabase.from('activity_log').insert([
+      {
+        id: `act-${uuidv4().substring(0, 8)}`,
+        text: `New treatment recorded: ${description}`,
+        subtext: `Total: ₹${totalCost}`,
+        color: 'green',
+        patient_id: id
+      }
+    ]);
 
     return NextResponse.json(newTreatment);
   } catch (error) {

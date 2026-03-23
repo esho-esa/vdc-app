@@ -3,18 +3,19 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    const db = getDB();
-    const notifications = db.prepare(`
-      SELECT id, type, title, message, patient_id as patientId, read, created_at as time 
-      FROM notifications 
-      ORDER BY created_at DESC 
-      LIMIT 20
-    `).all();
+    const supabase = getDB();
+    const { data: notifications, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) throw error;
 
     // Format time for UI (e.g., "2 hours ago")
     const formatted = notifications.map(n => {
       const now = new Date();
-      const created = new Date(n.time);
+      const created = new Date(n.created_at);
       const diffMs = now - created;
       const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
       
@@ -27,7 +28,11 @@ export async function GET() {
       }
 
       return {
-        ...n,
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        patientId: n.patient_id,
         read: !!n.read,
         time: timeStr
       };
@@ -41,14 +46,13 @@ export async function GET() {
 
 export async function PATCH(request) {
   try {
-    const db = getDB();
+    const supabase = getDB();
     const { id, read, all } = await request.json();
     
     if (all) {
-      db.prepare('UPDATE notifications SET read = 1').run();
+      await supabase.from('notifications').update({ read: 1 }).neq('read', 1);
     } else {
-      db.prepare('UPDATE notifications SET read = ? WHERE id = ?')
-        .run(read ? 1 : 0, id);
+      await supabase.from('notifications').update({ read: read ? 1 : 0 }).eq('id', id);
     }
       
     return NextResponse.json({ success: true });
@@ -59,15 +63,15 @@ export async function PATCH(request) {
 
 export async function DELETE(request) {
   try {
-    const db = getDB();
+    const supabase = getDB();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const all = searchParams.get('all') === 'true';
 
     if (all) {
-      db.prepare('DELETE FROM notifications').run();
+      await supabase.from('notifications').delete().neq('id', '0'); // workaround for deleting all if needed, or just delete()
     } else if (id) {
-      db.prepare('DELETE FROM notifications WHERE id = ?').run(id);
+      await supabase.from('notifications').delete().eq('id', id);
     }
 
     return NextResponse.json({ success: true });

@@ -3,9 +3,14 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    const db = getDB();
-    const row = db.prepare('SELECT COUNT(*) as count FROM notifications WHERE read = 0').get();
-    return NextResponse.json({ count: row.count });
+    const supabase = getDB();
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('read', 0);
+
+    if (error) throw error;
+    return NextResponse.json({ count });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
