@@ -1,0 +1,26 @@
+{
+  "name": "dental-clinic",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.8.0",
+    "jsonwebtoken": "^9.0.3",
+    "next": "16.1.7",
+    "pdfkit": "^0.18.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "twilio": "^5.13.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.1.7"
+  }
+}
