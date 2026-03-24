@@ -16,13 +16,13 @@ export async function POST(request) {
 
     const db = getDB();
 
-    const { data: user } = await db
+    const { data: user, error } = await db
       .from("staff")
       .select("*")
       .eq("username", username)
       .single();
 
-    if (!user) {
+    if (error || !user) {
       return NextResponse.json(
         { error: "Invalid username or password" },
         { status: 401 }
