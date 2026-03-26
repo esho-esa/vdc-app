@@ -14,9 +14,14 @@ export async function POST(request) {
     const supabase = getDB();
     const { data: settings, error } = await supabase
       .from('settings')
-      .select('reminder_template')
+      .select('reminder_template, whatsapp_enabled')
       .eq('id', 1)
       .single();
+
+    // Check if WhatsApp reminders are globally disabled
+    if (settings && settings.whatsapp_enabled === false) {
+      return NextResponse.json({ success: false, message: 'WhatsApp reminders are disabled in settings' });
+    }
 
     const defaultTemplate = `Hello M/s [Name],
 Your Dental Appointment has been Scheduled on 🗓 [Date] at ⏰ [Time]. For enquiry please contact below number. Thanks.

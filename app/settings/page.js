@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [staffForm, setStaffForm] = useState({ id: '', name: '', username: '', email: '', role: '', password: '' });
@@ -44,19 +45,45 @@ export default function SettingsPage() {
   }, []);
 
   async function handleSaveSettings() {
+    setIsSaving(true);
     try {
+      const payload = {
+        clinic_name: settings.clinicName,
+        tagline: settings.tagline,
+        phone: settings.phone,
+        email: settings.email,
+        address: settings.address,
+        accent_color: settings.accentColor,
+        whatsapp_enabled: settings.whatsappEnabled,
+        whatsapp_number: settings.whatsappNumber,
+        whatsapp_business_number: settings.whatsappNumber,
+        reminder_template: settings.reminderTemplate,
+        whatsapp_template: settings.reminderTemplate,
+      };
+
+      console.log('[Settings] Saving:', payload);
+
       const res = await fetch('/api/settings', {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify(payload)
       });
+
+      const result = await res.json();
+      console.log('[Settings] Response:', result);
+
       if (res.ok) {
         setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+        setTimeout(() => setSaved(false), 3000);
+      } else {
+        console.error('[Settings] Save failed:', result);
+        alert('Failed to save settings: ' + (result.error || 'Unknown error'));
       }
     } catch(err) {
-      console.error(err);
+      console.error('[Settings] Network error:', err);
       alert('Failed to save settings');
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -139,8 +166,8 @@ export default function SettingsPage() {
           <h1 className="page-title">Settings</h1>
           <p className="page-subtitle">Manage your clinic preferences</p>
         </div>
-        <button className="btn btn-primary" onClick={handleSaveSettings}>
-          {saved ? '✓ Saved!' : 'Save Changes'}
+        <button className="btn btn-primary" onClick={handleSaveSettings} disabled={isSaving}>
+          {isSaving ? 'Saving...' : saved ? '✓ Saved!' : 'Save Changes'}
         </button>
       </div>
 
