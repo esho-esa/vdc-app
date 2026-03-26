@@ -1,4 +1,5 @@
 'use client';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -12,6 +13,23 @@ const navItems = [
 
 export default function Sidebar({ isOpen, onClose }) {
   const pathname = usePathname();
+  const [userRole, setUserRole] = useState(null);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        setUserRole(parsed.role);
+      } catch (e) { /* ignore */ }
+    }
+  }, []);
+
+  // Build the full nav list, injecting Revenue after Dashboard for admins
+  const fullNav = [...navItems];
+  if (userRole === 'admin') {
+    fullNav.splice(1, 0, { label: 'Revenue', href: '/dashboard/revenue', icon: '💰' });
+  }
 
   return (
     <>
@@ -23,7 +41,7 @@ export default function Sidebar({ isOpen, onClose }) {
 
         <div className="sidebar-section-label">Menu</div>
         <nav className="sidebar-nav">
-          {navItems.map((item) => {
+          {fullNav.map((item) => {
             const isActive = pathname === item.href || 
               (item.href !== '/' && pathname.startsWith(item.href));
             return (
