@@ -1,59 +1,40 @@
-import { getDB } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server"
+import { getDB } from "@/lib/db"
 
 export async function GET() {
   try {
-    const supabase = getDB();
-    let { data: settings, error } = await supabase
-      .from('settings')
-      .select('*')
-      .eq('id', 1)
-      .single();
+    const db = getDB()
 
-    if (error && error.code === 'PGRST116') { // Not found in Supabase
-      const { data: newSettings, error: insertError } = await supabase
-        .from('settings')
-        .insert([{ id: 1 }])
-        .select()
-        .single();
-      
-      if (insertError) throw insertError;
-      settings = newSettings;
-    } else if (error) {
-      throw error;
-    }
+    const { data, error } = await db
+      .from("settings")
+      .select("*")
+      .single()
 
-    return NextResponse.json(settings);
-  } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) throw error
+
+    return NextResponse.json(data || {})
+  } catch (err) {
+    console.error(err)
+    return NextResponse.json({}, { status: 500 })
   }
 }
 
-export async function PUT(request) {
+export async function POST(req) {
   try {
-    const supabase = getDB();
-    const body = await request.json();
-    
-    const { data: updated, error } = await supabase
-      .from('settings')
-      .update({
-        clinic_name: body.clinicName || '',
-        tagline: body.tagline || '',
-        email: body.email || '',
-        phone: body.phone || '',
-        address: body.address || '',
-        accent_color: body.accentColor || '#007aff',
-        whatsapp_enabled: body.whatsappEnabled ? 1 : 0,
-        whatsapp_number: body.whatsappNumber || '',
-        reminder_template: body.reminderTemplate || ''
-      })
-      .eq('id', 1)
-      .select()
-      .single();
+    const db = getDB()
+    const body = await req.json()
 
-    if (error) throw error;
-    return NextResponse.json(updated);
-  } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const { data, error } = await db
+      .from("settings")
+      .upsert(body)
+      .select()
+      .single()
+
+    if (error) throw error
+
+    return NextResponse.json(data)
+  } catch (err) {
+    console.error(err)
+    return NextResponse.json({ error: "Failed to save settings" }, { status: 500 })
   }
 }
