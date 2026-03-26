@@ -35,8 +35,8 @@ export default function SettingsPage() {
           address: settingsData.address || '',
           accentColor: settingsData.accent_color || '#007aff',
           whatsappEnabled: Boolean(settingsData.whatsapp_enabled),
-          whatsappNumber: settingsData.whatsapp_number || '',
-          reminderTemplate: settingsData.reminder_template || ''
+          whatsappNumber: settingsData.whatsapp_business_number || settingsData.whatsapp_number || '',
+          reminderTemplate: settingsData.whatsapp_template || settingsData.reminder_template || ''
         });
       }
       setStaff(staffData.error ? [] : staffData);
@@ -55,9 +55,7 @@ export default function SettingsPage() {
         address: settings.address,
         accent_color: settings.accentColor,
         whatsapp_enabled: settings.whatsappEnabled,
-        whatsapp_number: settings.whatsappNumber,
         whatsapp_business_number: settings.whatsappNumber,
-        reminder_template: settings.reminderTemplate,
         whatsapp_template: settings.reminderTemplate,
       };
 

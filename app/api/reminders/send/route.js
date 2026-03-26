@@ -14,7 +14,7 @@ export async function POST(request) {
     const supabase = getDB();
     const { data: settings, error } = await supabase
       .from('settings')
-      .select('reminder_template, whatsapp_enabled')
+      .select('whatsapp_template, whatsapp_enabled')
       .eq('id', 1)
       .single();
 
@@ -37,7 +37,7 @@ Victoria Dental Care
 Dr. S. Ezhil Ethel Selvam
 9789124195`;
 
-    let template = settings?.reminder_template || defaultTemplate;
+    let template = settings?.whatsapp_template || settings?.reminder_template || defaultTemplate;
  
     if (error && error.code !== 'PGRST116') {
       console.warn('Error fetching reminder template:', error);
