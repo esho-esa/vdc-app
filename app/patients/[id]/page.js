@@ -335,10 +335,13 @@ export default function PatientProfile({ params }) {
               <tbody>
                 {patientPrescriptions.map(rx => {
                   let parsedMeds = [];
-                  let total = 0;
+                  let total = rx.total_amount || 0;
                   try {
                     parsedMeds = JSON.parse(rx.medications);
-                    total = parsedMeds.reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+                    if (!total) {
+                      const medsTotal = parsedMeds.reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+                      total = medsTotal + (parseFloat(rx.surgeon_fee) || 0);
+                    }
                   } catch(e) { }
                   
                   return (
