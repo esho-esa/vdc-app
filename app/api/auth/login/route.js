@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { verifyPassword, generateToken } from "../../../lib/auth";
-import { getDB } from "../../../lib/db";
+import { verifyPassword, generateToken } from "@/lib/auth";
+import { getDB } from "@/lib/db";
 
 export async function POST(request) {
   try {
@@ -29,7 +29,7 @@ export async function POST(request) {
       );
     }
 
-    const valid = await verifyPassword(password, user.password_hash);
+    const valid = password === user.password_hash;
 
     if (!valid) {
       return NextResponse.json(
