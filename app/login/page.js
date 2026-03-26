@@ -45,29 +45,29 @@ export default function LoginPage() {
         <div className="blob blob-1"></div>
         <div className="blob blob-2"></div>
       </div>
-      
+
       <div className="login-card glass-card">
         <div className="login-header">
           <div className="login-logo">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
           </div>
-          <h1>Victoria Dental</h1>
+          <h1>Victoria Dental Care</h1>
           <p>Clinic Management System</p>
         </div>
 
         <form onSubmit={handleLogin} className="login-form">
           {error && (
             <div className="login-error">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
               {error}
             </div>
           )}
 
           <div className="input-group">
             <label>Username</label>
-            <input 
-              type="text" 
-              className="input-field" 
+            <input
+              type="text"
+              className="input-field"
               placeholder="Anand"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -77,9 +77,9 @@ export default function LoginPage() {
 
           <div className="input-group">
             <label>Password</label>
-            <input 
-              type="password" 
-              className="input-field" 
+            <input
+              type="password"
+              className="input-field"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
