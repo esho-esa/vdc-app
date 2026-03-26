@@ -1,40 +1,41 @@
-import { NextResponse } from "next/server"
-import { getDB } from "@/lib/db"
+import { NextResponse } from "next/server";
+import { getDB } from "@/lib/db";
 
 export async function GET() {
   try {
-    const db = getDB()
+    const db = getDB();
 
     const { data, error } = await db
       .from("settings")
       .select("*")
-      .single()
+      .limit(1)
+      .single();
 
-    if (error) throw error
+    if (error && error.code !== "PGRST116") throw error;
 
-    return NextResponse.json(data || {})
-  } catch (err) {
-    console.error(err)
-    return NextResponse.json({}, { status: 500 })
+    return NextResponse.json(data || {});
+  } catch (error) {
+    console.error("Settings fetch error:", error);
+    return NextResponse.json({ error: "Failed to fetch settings" }, { status: 500 });
   }
 }
 
-export async function POST(req) {
+export async function POST(request) {
   try {
-    const db = getDB()
-    const body = await req.json()
+    const db = getDB();
+    const body = await request.json();
 
     const { data, error } = await db
       .from("settings")
-      .upsert({ ...body, id: 1 })
+      .upsert({ id: 1, ...body })
       .select()
-      .single()
+      .single();
 
-    if (error) throw error
+    if (error) throw error;
 
-    return NextResponse.json(data)
-  } catch (err) {
-    console.error(err)
-    return NextResponse.json({ error: "Failed to save settings" }, { status: 500 })
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Settings save error:", error);
+    return NextResponse.json({ error: "Failed to save settings" }, { status: 500 });
   }
 }
