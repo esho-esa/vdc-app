@@ -4,14 +4,19 @@ import path from 'path'
 
 export async function GET(request, { params }) {
   try {
-    const { filename } = params
+    const { filename } = await params
 
     if (!filename || !filename.endsWith('.pdf')) {
       return NextResponse.json({ error: 'Invalid file' }, { status: 400 })
     }
 
-    // Check public/pdfs first
-    let filePath = path.join(process.cwd(), 'public', 'pdfs', filename)
+    // Check /tmp/pdfs first (for Vercel compatibility)
+    let filePath = path.join('/tmp', 'pdfs', filename)
+
+    if (!fs.existsSync(filePath)) {
+      // Check public/pdfs
+      filePath = path.join(process.cwd(), 'public', 'pdfs', filename)
+    }
 
     // If not found check assets/pdfs
     if (!fs.existsSync(filePath)) {

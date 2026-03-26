@@ -26,7 +26,7 @@ export async function POST(req) {
 
     const { data, error } = await db
       .from("settings")
-      .upsert(body)
+      .upsert({ ...body, id: 1 })
       .select()
       .single()
 

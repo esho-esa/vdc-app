@@ -8,7 +8,7 @@ import { sendWhatsAppReminder } from '@/lib/whatsapp';
 
 export async function POST(request, { params }) {
   try {
-    const { id: patientId } = await params;
+    const { id: patientId } = params;
     const body = await request.json();
     const { medications, diagnosis, notes, date, surgeonFee } = body;
 
@@ -31,18 +31,19 @@ export async function POST(request, { params }) {
       .eq('id', 1)
       .single();
 
-    let settings = settingsData || { 
-      clinic_name: 'Victoria Dental Care', 
-      tagline: 'Premium Dental Solutions', 
-      address: 'No 1/334 Injambakkam, Opp to Suga Jeeva Peralayam, Ammathi, Perumal Koil St, Chennai, Tamil Nadu 600115', 
-      phone: '+91 9176733358', 
-      email: 'victoriadentalcare2015@gmail.com', 
-      accent_color: '#007aff' 
+    let settings = settingsData || {
+      clinic_name: 'Victoria Dental Care',
+      tagline: 'Premium Dental Solutions',
+      address: 'No 1/334 Injambakkam, Opp to Suga Jeeva Peralayam, Ammathi, Perumal Koil St, Chennai, Tamil Nadu 600115',
+      phone: '+91 9176733358',
+      email: 'victoriadentalcare2015@gmail.com',
+      accent_color: '#007aff'
     };
 
     const rxId = uuidv4();
     const pdfFilename = `rx-${rxId}.pdf`;
-    const pdfDir = path.join(process.cwd(), 'public', 'pdfs');
+    // Use /tmp for Vercel compatibility
+    const pdfDir = path.join('/tmp', 'pdfs');
 
     if (!fs.existsSync(pdfDir)) {
       fs.mkdirSync(pdfDir, { recursive: true });
@@ -204,7 +205,7 @@ export async function POST(request, { params }) {
 
     // Save to DB
     const medicationsStr = typeof medications === 'string' ? medications : JSON.stringify(medications);
-    
+
     const { data: newRx, error: rxError } = await supabase
       .from('prescriptions')
       .insert([
@@ -228,7 +229,6 @@ export async function POST(request, { params }) {
     // Log activity
     await supabase.from('activity_log').insert([
       {
-        id: Math.random().toString(36).substring(2, 9),
         text: `E-Bill generated for ${patient.name}`,
         subtext: `Amount: ₹${subtotal.toFixed(2)}`,
         patient_id: patientId
@@ -236,7 +236,8 @@ export async function POST(request, { params }) {
     ]);
 
     // Send WhatsApp with PDF Link
-    const pdfPublicLink = `http://localhost:3000${pdfUrl}`;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const pdfPublicLink = `${siteUrl}${pdfUrl}`;
     const message = `Hello ${patient.name}, your e-prescription from Victoria Dental Care is ready. Download it here: ${pdfPublicLink}`;
 
     if (patient.phone) {

@@ -7,11 +7,13 @@ export async function GET() {
 
     const { data: patients } = await supabase
       .from('patients')
-      .select('*')
+      .select('id')
+      .eq('is_deleted', false)
 
     const { data: appointments } = await supabase
       .from('appointments')
-      .select('*')
+      .select('status')
+      .eq('is_deleted', false)
 
     const totalPatients = patients?.length || 0
 
@@ -35,7 +37,7 @@ export async function GET() {
     })
 
   } catch (error) {
-    console.error(error)
+    console.error('Dashboard Stats Error:', error)
 
     return NextResponse.json({
       totalPatients: 0,
@@ -45,8 +47,13 @@ export async function GET() {
         treatment: 0,
         surgery: 0
       },
-      statusCounts: {},
+      statusCounts: {
+        confirmed: 0,
+        checkin: 0,
+        engaged: 0,
+        checkout: 0
+      },
       isAdmin: false
-    })
+    }, { status: 200 }) // Return 200 with fallback data to prevent frontend crash
   }
 }
