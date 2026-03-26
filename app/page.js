@@ -43,26 +43,31 @@ export default function Dashboard() {
     const savedUser = localStorage.getItem('user');
     if (savedUser) setUser(JSON.parse(savedUser));
     
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 15000); // 15s refresh
+    fetchDashboardData(true);
+    const interval = setInterval(() => fetchDashboardData(false), 30000); // 30s silent refresh
     return () => clearInterval(interval);
   }, []);
 
-  async function fetchDashboardData() {
-    setLoading(true);
+  async function fetchDashboardData(showSpinner = true) {
+    if (showSpinner) setLoading(true);
     try {
-      const [pData, aData, sData, actData, nData] = await Promise.all([
+      const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      const role = savedUser.role || 'staff';
+
+      // Only 3 API calls instead of 5: stats (includes activity + counts), patients (for appointment modal), appointments
+      const [sData, pData, aData] = await Promise.all([
+        fetch(`/api/dashboard/stats?role=${role}`).then(r => r.json()),
         fetch('/api/patients').then(r => r.json()),
         fetch('/api/appointments').then(r => r.json()),
-        fetch('/api/dashboard/stats').then(r => r.json()),
-        fetch('/api/dashboard/activity').then(r => r.json()),
-        fetch('/api/notifications').then(r => r.json())
       ]);
-      setPatients(pData);
-      setAppointments(aData);
+
       setStats(sData);
-      setActivityFeed(actData);
-      setNotifications(nData);
+      setActivityFeed(sData.activityFeed || []);
+      setPatients(pData || []);
+      setAppointments(aData || []);
+
+      // Fetch notifications separately (non-blocking)
+      fetch('/api/notifications').then(r => r.json()).then(n => setNotifications(n || [])).catch(() => {});
     } catch (e) {
       console.error(e);
     } finally {
@@ -95,11 +100,11 @@ export default function Dashboard() {
         setAppointments([...appointments, addedAppt]);
         setShowModal(false);
         setNewAppt({ patientId: '', patientName: '', date: '', time: '', type: 'checkup', notes: '' });
-        
+
         // Find patient phone for reminder
         const patient = patients.find(p => p.id === addedAppt.patient_id);
         if (patient && patient.phone) {
-           const message = `Hello M/s ${patient.name}, 
+          const message = `Hello M/s ${patient.name}, 
 Your Dental Appointment has been Scheduled on 🗓 ${addedAppt.date} at ⏰ ${addedAppt.time}. For enquiry please contact below number. Thanks. 
 
 Don't forget to bring: 
@@ -113,18 +118,18 @@ Victoria Dental Care
 Dr.S.Ezhil Ethel Selvam
 9789124195`;
 
-           fetch('/api/reminders/send', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-               patientPhone: patient.phone,
-               patientName: patient.name,
-               clinicName: 'Victoria Dental Care',
-               appointmentTime: addedAppt.time,
-               appointmentDate: addedAppt.date,
-               customMessage: message // Assuming the API can handle a custom message or will use these fields to build it
-             })
-           });
+          fetch('/api/reminders/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              patientPhone: patient.phone,
+              patientName: patient.name,
+              clinicName: 'Victoria Dental Care',
+              appointmentTime: addedAppt.time,
+              appointmentDate: addedAppt.date,
+              customMessage: message // Assuming the API can handle a custom message or will use these fields to build it
+            })
+          });
         }
       }
     } catch (error) {
@@ -179,7 +184,7 @@ Dr.S.Ezhil Ethel Selvam
           <p className="page-subtitle">Here&apos;s your clinic overview for your team at Victoria Dental Care</p>
         </div>
         <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
           New Appointment
         </button>
       </div>
@@ -213,10 +218,10 @@ Dr.S.Ezhil Ethel Selvam
           <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '8px', textAlign: 'center' }}>Live Status Today</div>
         </div>
         {stats.isAdmin && (
-           <div className="glass-card stat-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '12px 20px', background: 'rgba(16, 185, 129, 0.1)' }}>
-             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-success)', textAlign: 'center' }}>{stats.statusCounts?.confirmed || 0}</div>
-             <div style={{ fontSize: '0.625rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Confirmed Today</div>
-           </div>
+          <div className="glass-card stat-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '12px 20px', background: 'rgba(16, 185, 129, 0.1)' }}>
+            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-success)', textAlign: 'center' }}>{stats.statusCounts?.confirmed || 0}</div>
+            <div style={{ fontSize: '0.625rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Confirmed Today</div>
+          </div>
         )}
       </div>
 
@@ -230,7 +235,7 @@ Dr.S.Ezhil Ethel Selvam
               <h2 className="section-title">Today&apos;s Patients</h2>
               <Link href="/appointments" className="btn btn-ghost btn-sm">View Calendar</Link>
             </div>
-            
+
             {todayAppts.length === 0 ? (
               <div style={{ padding: 'var(--space-xl)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
                 No appointments for today.
@@ -257,7 +262,7 @@ Dr.S.Ezhil Ethel Selvam
                         </td>
                         <td><span className={`badge badge-${appt.type === 'checkup' ? 'info' : appt.type === 'cleaning' ? 'confirmed' : appt.type === 'treatment' ? 'pending' : 'purple'}`} style={{ textTransform: 'capitalize' }}>{appt.type}</span></td>
                         <td>
-                          <select 
+                          <select
                             className={`status-select ${appt.status}`}
                             value={appt.status}
                             onChange={(e) => updateAppointmentStatus(appt.id, e.target.value)}
@@ -328,9 +333,9 @@ Dr.S.Ezhil Ethel Selvam
               {recentNotifs.length === 0 ? (
                 <div style={{ padding: 'var(--space-md)', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>No notifications</div>
               ) : recentNotifs.map(n => (
-                <div 
-                  key={n.id} 
-                  className={`notification-item ${!n.read ? 'unread' : ''}`} 
+                <div
+                  key={n.id}
+                  className={`notification-item ${!n.read ? 'unread' : ''}`}
                   onClick={() => handleNotificationClick(n)}
                   style={{ cursor: n.read ? 'default' : 'pointer' }}
                 >
@@ -356,25 +361,25 @@ Dr.S.Ezhil Ethel Selvam
       }>
         <div className="input-group">
           <label>Patient</label>
-          <PatientPicker 
-            patients={patients} 
-            value={newAppt.patientId} 
-            onChange={(id, name) => setNewAppt({ ...newAppt, patientId: id, patientName: name })} 
+          <PatientPicker
+            patients={patients}
+            value={newAppt.patientId}
+            onChange={(id, name) => setNewAppt({ ...newAppt, patientId: id, patientName: name })}
           />
         </div>
         <div className="grid-2">
           <div className="input-group">
             <label>Date</label>
-            <input type="date" className="input-field" value={newAppt.date} onChange={e => setNewAppt({...newAppt, date: e.target.value})} />
+            <input type="date" className="input-field" value={newAppt.date} onChange={e => setNewAppt({ ...newAppt, date: e.target.value })} />
           </div>
           <div className="input-group">
             <label>Time</label>
-            <input type="time" className="input-field" value={newAppt.time} onChange={e => setNewAppt({...newAppt, time: e.target.value})} />
+            <input type="time" className="input-field" value={newAppt.time} onChange={e => setNewAppt({ ...newAppt, time: e.target.value })} />
           </div>
         </div>
         <div className="input-group">
           <label>Appointment Type</label>
-          <select className="input-field" value={newAppt.type} onChange={e => setNewAppt({...newAppt, type: e.target.value})}>
+          <select className="input-field" value={newAppt.type} onChange={e => setNewAppt({ ...newAppt, type: e.target.value })}>
             <option value="checkup">Checkup</option>
             <option value="cleaning">Cleaning</option>
             <option value="treatment">Treatment</option>
@@ -384,7 +389,7 @@ Dr.S.Ezhil Ethel Selvam
         </div>
         <div className="input-group">
           <label>Notes</label>
-          <textarea className="input-field" placeholder="Add notes..." rows={3} value={newAppt.notes} onChange={e => setNewAppt({...newAppt, notes: e.target.value})} />
+          <textarea className="input-field" placeholder="Add notes..." rows={3} value={newAppt.notes} onChange={e => setNewAppt({ ...newAppt, notes: e.target.value })} />
         </div>
       </Modal>
       <style jsx global>{`
