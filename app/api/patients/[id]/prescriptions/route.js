@@ -9,7 +9,7 @@ import { sendWhatsAppReminder } from '@/lib/whatsapp';
 export async function POST(request, { params }) {
   try {
 
-    const { id: patientId } = params;
+    const { id: patientId } = await params;
     const body = await request.json();
     const { medications, diagnosis, notes, date, surgeonFee } = body;
 
@@ -110,10 +110,13 @@ export async function POST(request, { params }) {
         {
           id: rxId,
           patient_id: patientId,
-          medicines: JSON.stringify(medications),
+          medications: JSON.stringify(medications),
           diagnosis: diagnosis || '',
           notes: notes || '',
-          surgeon_fee: surgeonFeeNum
+          pdf_url: pdfUrl,
+          total_amount: subtotal,
+          surgeon_fee: surgeonFeeNum,
+          date: date
         }
       ])
       .select()

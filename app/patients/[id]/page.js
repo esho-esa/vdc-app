@@ -107,11 +107,13 @@ export default function PatientProfile({ params }) {
         setShowRxModal(false);
         setRxFormData({ date: new Date().toISOString().split('T')[0], diagnosis: '', medications: [{ name: '', price: '' }], surgeonFee: '0', notes: '' });
       } else {
-        alert('Failed to generate prescription');
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Prescription API Error:', errorData);
+        alert(`Failed to generate prescription: ${errorData.error || 'Unknown error'}`);
       }
     } catch (e) {
-      console.error(e);
-      alert('Error creating prescription');
+      console.error('Prescription Network Error:', e);
+      alert('Error creating prescription (Network or Server Issue). Check console for details.');
     } finally {
       setIsRxSaving(false);
     }
