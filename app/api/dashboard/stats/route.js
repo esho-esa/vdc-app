@@ -18,14 +18,13 @@ export async function GET(request) {
       supabase
         .from('patients')
         .select('id', { count: 'exact', head: true })
-        .eq('is_deleted', false),
+        .eq('is_deleted', 0),
 
       // 2. Today's appointments with status counts
       supabase
         .from('appointments')
         .select('status')
-        .eq('date', today)
-        .eq('is_deleted', false),
+        .eq('date', today),
 
       // 3. Recent activity (limited to 8)
       supabase

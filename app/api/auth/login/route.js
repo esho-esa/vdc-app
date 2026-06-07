@@ -29,7 +29,7 @@ export async function POST(request) {
       );
     }
 
-    const valid = password === user.password_hash;
+    const valid = verifyPassword(password, user.password_hash);
 
     if (!valid) {
       return NextResponse.json(
