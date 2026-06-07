@@ -81,61 +81,6 @@ export async function GET(request, { params }) {
 
   const supabase = getDB();
 
-  // If supabase is null (local mock preview mode)
-  if (!supabase) {
-    console.warn('[PDF:Retrieve] Database client is null. Generating mock PDF on-the-fly for local preview.');
-    try {
-      const mockPrescription = {
-        id: prescriptionId,
-        patient_id: 'mock-patient',
-        medications: JSON.stringify([
-          { name: 'Mock Amoxicillin 500mg', price: 45 },
-          { name: 'Mock Paracetamol 500mg', price: 20 }
-        ]),
-        diagnosis: 'Mock Dental Cavity',
-        notes: 'Take medicines after meals.',
-        pdf_url: `/api/pdfs/${filename}`,
-        total_amount: 215,
-        surgeon_fee: 150,
-        date: new Date().toISOString().split('T')[0]
-      };
-
-      const mockPatient = {
-        id: 'mock-patient',
-        name: 'Mock Patient (Local Preview)',
-        phone: '+91 9999999999',
-        age: 35,
-        address: '123 Mock Street, Chennai'
-      };
-
-      const pdfBuffer = await generateInvoicePDF({
-        prescription: mockPrescription,
-        patient: mockPatient
-      });
-
-      console.log('[PDF:Retrieve] Mock PDF generated successfully, size:', pdfBuffer.length, 'bytes');
-
-      const url = new URL(request.url);
-      const download = url.searchParams.get('download') === 'true';
-      const disposition = download
-        ? `attachment; filename="${filename}"`
-        : `inline; filename="${filename}"`;
-
-      return new NextResponse(pdfBuffer, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': disposition,
-          'Content-Length': pdfBuffer.length.toString(),
-          'Cache-Control': 'private, max-age=300',
-        },
-      });
-    } catch (error) {
-      console.error('[PDF:Retrieve] Mock generation failed:', error);
-      return NextResponse.json({ error: 'Failed to generate preview PDF.' }, { status: 500 });
-    }
-  }
-
   try {
     // Fetch prescription from database
     const { data: prescription, error: rxError } = await supabase

@@ -78,33 +78,25 @@ export async function POST(request, { params }) {
     const supabase = getDB();
 
     // Get patient
-    let patient;
-    if (supabase) {
-      const { data: p, error: patientError } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('id', patientId)
-        .single();
+    const { data: patient, error: patientError } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('id', patientId)
+      .single();
 
-      if (patientError || !p) {
-        console.error('[Prescription:Create] Patient not found:', patientId, patientError?.message);
-        return NextResponse.json({ error: 'Patient not found' }, { status: 404 });
-      }
-      patient = p;
-    } else {
-      console.warn('[Prescription:Create] Database client is null. Using mock patient data.');
-      patient = {
-        id: patientId,
-        name: 'Mock Local Patient',
-        phone: '+91 9999999999',
-        email: 'mock@example.com',
-        age: 30,
-        address: '123 Mock Lane'
-      };
+    if (patientError || !patient) {
+      console.error('[Prescription:Create] Patient not found:', patientId, patientError?.message);
+      return NextResponse.json({ error: 'Patient not found' }, { status: 404 });
     }
 
     // Get settings for branding
-    let settings = {
+    const { data: settingsData } = await supabase
+      .from('settings')
+      .select('*')
+      .eq('id', 1)
+      .single();
+
+    const settings = settingsData || {
       clinic_name: 'Victoria Dental Care',
       tagline: 'Premium Dental Solutions',
       address: 'No 1/334 Injambakkam, Opp to Suga Jeeva Peralayam, Ammathi, Perumal Koil St, Chennai',
@@ -112,17 +104,6 @@ export async function POST(request, { params }) {
       email: 'victoriadentalcare2015@gmail.com',
       accent_color: '#007aff'
     };
-
-    if (supabase) {
-      const { data: settingsData } = await supabase
-        .from('settings')
-        .select('*')
-        .eq('id', 1)
-        .single();
-      if (settingsData) {
-        settings = settingsData;
-      }
-    }
 
     const rxId = uuidv4();
     const pdfFilename = `rx-${rxId}.pdf`;
@@ -168,47 +149,37 @@ export async function POST(request, { params }) {
     }
 
     // Upload PDF to Supabase Storage
-    if (supabase) {
-      try {
-        await uploadPDFToStorage(supabase, pdfFilename, pdfBuffer);
-      } catch (uploadError) {
-        console.error('[Prescription:Create] PDF upload failed:', uploadError);
-        return NextResponse.json(
-          { error: 'Failed to save E-Bill to cloud storage: ' + uploadError.message },
-          { status: 500 }
-        );
-      }
-    } else {
-      console.warn('[Prescription:Create] Supabase client is null. Skipping PDF cloud upload.');
+    try {
+      await uploadPDFToStorage(supabase, pdfFilename, pdfBuffer);
+    } catch (uploadError) {
+      console.error('[Prescription:Create] PDF upload failed:', uploadError);
+      return NextResponse.json(
+        { error: 'Failed to save E-Bill to cloud storage: ' + uploadError.message },
+        { status: 500 }
+      );
     }
 
     // Save to DB
-    let newRx = prescriptionRecord;
-    if (supabase) {
-      const { data, error: rxError } = await supabase
-        .from('prescriptions')
-        .insert([prescriptionRecord])
-        .select()
-        .single();
+    const { data: newRx, error: rxError } = await supabase
+      .from('prescriptions')
+      .insert([prescriptionRecord])
+      .select()
+      .single();
 
-      if (rxError) {
-        console.error('[Prescription:Create] DB insert failed:', rxError);
-        throw rxError;
-      }
-      newRx = data;
-      console.log('[Prescription:Create] Saved to database:', newRx.id);
-
-      // Log activity
-      await supabase.from('activity_log').insert([
-        {
-          text: `E-Bill generated for ${patient.name}`,
-          subtext: `Amount: ₹${totalAmount}`,
-          patient_id: patientId
-        }
-      ]);
-    } else {
-      console.warn('[Prescription:Create] Supabase client is null. Skipping database insert and activity log.');
+    if (rxError) {
+      console.error('[Prescription:Create] DB insert failed:', rxError);
+      throw rxError;
     }
+    console.log('[Prescription:Create] Saved to database:', newRx.id);
+
+    // Log activity
+    await supabase.from('activity_log').insert([
+      {
+        text: `E-Bill generated for ${patient.name}`,
+        subtext: `Amount: ₹${totalAmount}`,
+        patient_id: patientId
+      }
+    ]);
 
     // Send WhatsApp
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
