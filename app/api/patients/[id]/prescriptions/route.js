@@ -4,6 +4,62 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateInvoicePDF } from '@/lib/pdf';
 import { sendWhatsAppReminder } from '@/lib/whatsapp';
 
+/**
+ * Helper to upload PDF to Supabase Storage.
+ * Auto-creates bucket if it does not exist.
+ */
+async function uploadPDFToStorage(supabase, filename, pdfBuffer) {
+  const bucketName = 'ebills';
+  console.log(`[PDF:Upload] Attempting to upload ${filename} to Supabase Storage bucket '${bucketName}'...`);
+  
+  // Try uploading first
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .upload(filename, pdfBuffer, {
+      contentType: 'application/pdf',
+      upsert: true
+    });
+
+  if (error) {
+    console.warn(`[PDF:Upload] Initial upload failed: ${error.message}. Checking if bucket exists...`);
+    // Attempt to create bucket if it doesn't exist
+    try {
+      console.log(`[PDF:Upload] Attempting to create bucket '${bucketName}'...`);
+      const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        public: true,
+        fileSizeLimit: 5242880 // 5MB
+      });
+
+      if (createError && !createError.message?.includes('already exists')) {
+        console.error(`[PDF:Upload] Failed to create bucket '${bucketName}':`, createError.message);
+        throw createError;
+      }
+
+      console.log(`[PDF:Upload] Bucket '${bucketName}' verified/created. Retrying upload...`);
+      const { data: retryData, error: retryError } = await supabase.storage
+        .from(bucketName)
+        .upload(filename, pdfBuffer, {
+          contentType: 'application/pdf',
+          upsert: true
+        });
+
+      if (retryError) {
+        console.error(`[PDF:Upload] Retry upload failed:`, retryError.message);
+        throw retryError;
+      }
+
+      console.log(`[PDF:Upload] Retry upload succeeded:`, retryData.path);
+      return retryData;
+    } catch (bucketErr) {
+      console.error(`[PDF:Upload] Bucket auto-creation or retry failed:`, bucketErr.message);
+      throw bucketErr;
+    }
+  }
+
+  console.log(`[PDF:Upload] Upload succeeded:`, data.path);
+  return data;
+}
+
 export async function POST(request, { params }) {
   try {
     const { id: patientId } = await params;
@@ -22,25 +78,33 @@ export async function POST(request, { params }) {
     const supabase = getDB();
 
     // Get patient
-    const { data: patient, error: patientError } = await supabase
-      .from('patients')
-      .select('*')
-      .eq('id', patientId)
-      .single();
+    let patient;
+    if (supabase) {
+      const { data: p, error: patientError } = await supabase
+        .from('patients')
+        .select('*')
+        .eq('id', patientId)
+        .single();
 
-    if (patientError || !patient) {
-      console.error('[Prescription:Create] Patient not found:', patientId, patientError?.message);
-      return NextResponse.json({ error: 'Patient not found' }, { status: 404 });
+      if (patientError || !p) {
+        console.error('[Prescription:Create] Patient not found:', patientId, patientError?.message);
+        return NextResponse.json({ error: 'Patient not found' }, { status: 404 });
+      }
+      patient = p;
+    } else {
+      console.warn('[Prescription:Create] Database client is null. Using mock patient data.');
+      patient = {
+        id: patientId,
+        name: 'Mock Local Patient',
+        phone: '+91 9999999999',
+        email: 'mock@example.com',
+        age: 30,
+        address: '123 Mock Lane'
+      };
     }
 
     // Get settings for branding
-    const { data: settingsData } = await supabase
-      .from('settings')
-      .select('*')
-      .eq('id', 1)
-      .single();
-
-    const settings = settingsData || {
+    let settings = {
       clinic_name: 'Victoria Dental Care',
       tagline: 'Premium Dental Solutions',
       address: 'No 1/334 Injambakkam, Opp to Suga Jeeva Peralayam, Ammathi, Perumal Koil St, Chennai',
@@ -48,6 +112,17 @@ export async function POST(request, { params }) {
       email: 'victoriadentalcare2015@gmail.com',
       accent_color: '#007aff'
     };
+
+    if (supabase) {
+      const { data: settingsData } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 1)
+        .single();
+      if (settingsData) {
+        settings = settingsData;
+      }
+    }
 
     const rxId = uuidv4();
     const pdfFilename = `rx-${rxId}.pdf`;
@@ -74,14 +149,16 @@ export async function POST(request, { params }) {
       date: date
     };
 
-    // Verify PDF can be generated (fail fast before saving to DB)
+    // Generate PDF in-memory
+    let pdfBuffer;
     try {
-      const testBuffer = await generateInvoicePDF({
+      console.log('[Prescription:Create] Generating invoice PDF buffer...');
+      pdfBuffer = await generateInvoicePDF({
         prescription: prescriptionRecord,
         patient,
         settings
       });
-      console.log('[Prescription:Create] PDF generation verified, size:', testBuffer.length, 'bytes');
+      console.log('[Prescription:Create] PDF generated successfully, size:', pdfBuffer.length, 'bytes');
     } catch (pdfError) {
       console.error('[Prescription:Create] PDF generation failed:', pdfError);
       return NextResponse.json(
@@ -90,30 +167,48 @@ export async function POST(request, { params }) {
       );
     }
 
-    // Save to DB
-    const { data: newRx, error: rxError } = await supabase
-      .from('prescriptions')
-      .insert([prescriptionRecord])
-      .select()
-      .single();
-
-    if (rxError) {
-      console.error('[Prescription:Create] DB insert failed:', rxError);
-      throw rxError;
+    // Upload PDF to Supabase Storage
+    if (supabase) {
+      try {
+        await uploadPDFToStorage(supabase, pdfFilename, pdfBuffer);
+      } catch (uploadError) {
+        console.error('[Prescription:Create] PDF upload failed:', uploadError);
+        return NextResponse.json(
+          { error: 'Failed to save E-Bill to cloud storage: ' + uploadError.message },
+          { status: 500 }
+        );
+      }
+    } else {
+      console.warn('[Prescription:Create] Supabase client is null. Skipping PDF cloud upload.');
     }
 
-    console.log('[Prescription:Create] Saved to database:', newRx.id);
+    // Save to DB
+    let newRx = prescriptionRecord;
+    if (supabase) {
+      const { data, error: rxError } = await supabase
+        .from('prescriptions')
+        .insert([prescriptionRecord])
+        .select()
+        .single();
 
-    // Log activity
-    await supabase.from('activity_log').insert([
-      {
-        text: `E-Bill generated for ${patient.name}`,
-        subtext: `Amount: ₹${totalAmount}`,
-        patient_id: patientId
+      if (rxError) {
+        console.error('[Prescription:Create] DB insert failed:', rxError);
+        throw rxError;
       }
-    ]);
+      newRx = data;
+      console.log('[Prescription:Create] Saved to database:', newRx.id);
 
-    console.log('[Prescription:Create] Activity logged');
+      // Log activity
+      await supabase.from('activity_log').insert([
+        {
+          text: `E-Bill generated for ${patient.name}`,
+          subtext: `Amount: ₹${totalAmount}`,
+          patient_id: patientId
+        }
+      ]);
+    } else {
+      console.warn('[Prescription:Create] Supabase client is null. Skipping database insert and activity log.');
+    }
 
     // Send WhatsApp
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
@@ -125,13 +220,11 @@ export async function POST(request, { params }) {
         await sendWhatsAppReminder(patient.phone, message);
         console.log('[Prescription:Create] WhatsApp message sent');
       } catch (waError) {
-        // Don't fail the request if WhatsApp fails
         console.warn('[Prescription:Create] WhatsApp send failed (non-critical):', waError.message);
       }
     }
 
     console.log('[Prescription:Create] Complete. Prescription ID:', newRx.id);
-
     return NextResponse.json(newRx, { status: 201 });
 
   } catch (error) {
