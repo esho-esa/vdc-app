@@ -17,3 +17,4 @@ clinic.db
 clinic.db-shm
 clinic.db-wal
 /public/pdfs/
+.env*
