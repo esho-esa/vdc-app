@@ -28,11 +28,39 @@ export default function Sidebar({ isOpen, onClose }) {
 
   // Build the full nav list, injecting Revenue after Dashboard for admins
   const fullNav = [...navItems];
-  if (userRole === 'admin') {
+  const role = userRole ? userRole.toLowerCase() : null;
+
+  if (role === 'admin' || role === 'super_admin') {
     fullNav.splice(1, 0, { label: 'Revenue', href: '/dashboard/revenue', icon: '💰' });
     fullNav.splice(3, 0, { label: 'Outstanding Payments', href: '/reports/outstanding', icon: '📋' });
     fullNav.splice(4, 0, { label: 'Follow-Ups & Insights', href: '/reports/follow-ups', icon: '📈' });
+    fullNav.push({ label: 'Staff Management', href: '/staff', icon: '👥' });
+  } else if (role === 'accountant') {
+    fullNav.splice(1, 0, { label: 'Revenue', href: '/dashboard/revenue', icon: '💰' });
+    fullNav.splice(3, 0, { label: 'Outstanding Payments', href: '/reports/outstanding', icon: '📋' });
   }
+
+  // Filter based on role restrictions
+  const filteredNav = fullNav.filter((item) => {
+    if (!role) return true; // Show all until role loads
+
+    if (role === 'admin' || role === 'super_admin') return true;
+
+    if (role === 'receptionist') {
+      return ['Dashboard', 'Patients', 'Appointments', 'Notifications'].includes(item.label);
+    }
+    if (role === 'dentist') {
+      return ['Dashboard', 'Patients', 'Notifications'].includes(item.label);
+    }
+    if (role === 'accountant') {
+      return ['Dashboard', 'Patients', 'Revenue', 'Outstanding Payments', 'Reports', 'Notifications'].includes(item.label);
+    }
+    if (role === 'assistant') {
+      return ['Dashboard', 'Patients', 'Appointments', 'Notifications'].includes(item.label);
+    }
+    
+    return false;
+  });
 
   return (
     <>
@@ -44,7 +72,7 @@ export default function Sidebar({ isOpen, onClose }) {
 
         <div className="sidebar-section-label">Menu</div>
         <nav className="sidebar-nav">
-          {fullNav.map((item) => {
+          {filteredNav.map((item) => {
             const isActive = pathname === item.href || 
               (item.href !== '/' && pathname.startsWith(item.href));
             return (
@@ -60,6 +88,7 @@ export default function Sidebar({ isOpen, onClose }) {
             );
           })}
         </nav>
+
 
         <div style={{ flex: 1 }} />
         <div className="sidebar-section-label">Clinic Hours</div>

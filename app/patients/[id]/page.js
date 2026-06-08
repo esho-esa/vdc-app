@@ -998,7 +998,25 @@ export default function PatientProfile({ params }) {
           { id: 'prescriptions', label: 'Prescriptions', icon: '💊' },
           { id: 'photos', label: 'Photos & X-Rays', icon: '📷' },
           { id: 'followups', label: 'Follow-Ups', icon: '🔁' }
-        ].map(tab => (
+        ].filter(tab => {
+          if (!user) return true; // Show all until user loads
+          const role = user.role ? user.role.toLowerCase() : '';
+          
+          if (role === 'admin' || role === 'super_admin') return true;
+          if (role === 'receptionist') {
+            return ['overview', 'followups'].includes(tab.id);
+          }
+          if (role === 'dentist') {
+            return ['overview', 'treatments', 'prescriptions', 'photos', 'followups'].includes(tab.id);
+          }
+          if (role === 'accountant') {
+            return ['overview', 'billing'].includes(tab.id);
+          }
+          if (role === 'assistant') {
+            return ['overview', 'treatments', 'followups'].includes(tab.id);
+          }
+          return false;
+        }).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -1023,6 +1041,7 @@ export default function PatientProfile({ params }) {
           </button>
         ))}
       </div>
+
 
       {/* Tab 1: Overview */}
       {activeTab === 'overview' && (

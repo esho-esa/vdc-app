@@ -25,12 +25,18 @@ export default function TopBar({ onMenuClick }) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {
+      console.error('[Logout] Heartbeat or log failed:', e);
+    }
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
     document.cookie = 'auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
     window.location.href = '/login';
   };
+
 
   return (
     <header className="topbar">
