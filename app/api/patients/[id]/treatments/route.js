@@ -72,6 +72,61 @@ export async function POST(request, { params }) {
 
     if (treatError) throw treatError;
 
+    // Process material consumption deductions (optional)
+    for (let i = 0; i < treatments.length; i++) {
+      const item = treatments[i];
+      const insertedTreatment = inserted[i];
+      const materials = item.materials || [];
+      if (Array.isArray(materials) && materials.length > 0) {
+        for (const mat of materials) {
+          const { itemId, quantity } = mat;
+          const qty = parseInt(quantity) || 0;
+          if (itemId && qty > 0) {
+            // Fetch item to verify stock and name
+            const { data: invItem } = await supabase
+              .from('inventory_items')
+              .select('current_stock, item_name, reorder_level')
+              .eq('id', itemId)
+              .single();
+            
+            if (invItem) {
+              const newStock = Math.max(0, invItem.current_stock - qty);
+              
+              // Decrement Stock
+              await supabase
+                .from('inventory_items')
+                .update({ current_stock: newStock })
+                .eq('id', itemId);
+
+              // Log Transaction
+              await supabase.from('inventory_transactions').insert([
+                {
+                  id: `itx-${uuidv4().substring(0, 8)}`,
+                  item_id: itemId,
+                  transaction_type: 'Usage',
+                  quantity: -qty,
+                  notes: `Deducted for treatment "${item.description || item.name}" (Visit ref: ${visitId})`
+                }
+              ]);
+
+              // Check if stock is now below reorder level, trigger alert
+              if (newStock <= invItem.reorder_level) {
+                await supabase.from('notifications').insert([
+                  {
+                    id: `not-${uuidv4().substring(0, 8)}`,
+                    type: 'inventory',
+                    title: 'Low Stock Alert',
+                    message: `Stock for ${invItem.item_name} has dropped below the reorder level (${newStock} remaining).`,
+                    read: 0
+                  }
+                ]);
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Optional follow-up insertion
     if (!Array.isArray(body) && body.followupRequired) {
       const { followupDate, followupType, followupNotes } = body;

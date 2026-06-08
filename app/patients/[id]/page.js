@@ -20,7 +20,7 @@ export default function PatientProfile({ params }) {
 
   // New multi-treatment state variables
   const [showTreatModal, setShowTreatModal] = useState(false);
-  const [treatmentsList, setTreatmentsList] = useState([{ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+  const [treatmentsList, setTreatmentsList] = useState([{ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '', materials: [] }]);
   const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
   const [visitDentist, setVisitDentist] = useState('Dr. Anand');
   const [isTreatSaving, setIsTreatSaving] = useState(false);
@@ -38,6 +38,9 @@ export default function PatientProfile({ params }) {
   const [followupNotes, setFollowupNotes] = useState('');
   const [patientFollowups, setPatientFollowups] = useState([]);
   const [followupsLoading, setFollowupsLoading] = useState(true);
+
+  // Inventory state variables
+  const [inventoryItems, setInventoryItems] = useState([]);
 
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
@@ -108,6 +111,12 @@ export default function PatientProfile({ params }) {
   function handleTreatmentRowChange(index, field, value) {
     const newList = [...treatmentsList];
     newList[index][field] = value;
+    
+    if (field === 'description') {
+      const autoMaterials = getAutoRecipe(value, inventoryItems);
+      newList[index].materials = autoMaterials;
+    }
+    
     setTreatmentsList(newList);
   }
 
@@ -137,7 +146,82 @@ export default function PatientProfile({ params }) {
 
     fetchRecords();
     fetchPatientFollowups();
+    fetchInventoryItems();
   }, [id]);
+
+  function fetchInventoryItems() {
+    fetch('/api/inventory/items')
+      .then(res => res.json())
+      .then(d => {
+        if (!d.error) {
+          setInventoryItems(d);
+        }
+      })
+      .catch(err => console.error('Failed to fetch inventory:', err));
+  }
+
+  function getAutoRecipe(description, inventory) {
+    const desc = (description || '').toLowerCase();
+    const recipe = [];
+    
+    const findItem = (name) => {
+      return inventory.find(i => i.item_name.toLowerCase().includes(name.toLowerCase()));
+    };
+
+    if (desc.includes('root canal') || desc.includes('rct')) {
+      const fileItem = findItem('root canal file') || findItem('file');
+      const anesItem = findItem('anesthetic');
+      const gloveItem = findItem('gloves');
+
+      if (fileItem) recipe.push({ itemId: fileItem.id, itemName: fileItem.item_name, quantity: 1 });
+      if (anesItem) recipe.push({ itemId: anesItem.id, itemName: anesItem.item_name, quantity: 1 });
+      if (gloveItem) recipe.push({ itemId: gloveItem.id, itemName: gloveItem.item_name, quantity: 2 });
+    } else if (desc.includes('scaling') || desc.includes('cleaning')) {
+      const gloveItem = findItem('gloves');
+      if (gloveItem) recipe.push({ itemId: gloveItem.id, itemName: gloveItem.item_name, quantity: 2 });
+    } else if (desc.includes('extraction') || desc.includes('removal')) {
+      const anesItem = findItem('anesthetic');
+      const gloveItem = findItem('gloves');
+      if (anesItem) recipe.push({ itemId: anesItem.id, itemName: anesItem.item_name, quantity: 1 });
+      if (gloveItem) recipe.push({ itemId: gloveItem.id, itemName: gloveItem.item_name, quantity: 2 });
+    }
+    return recipe;
+  }
+
+  function handleAddMaterialToRow(rowIndex, itemId) {
+    const item = inventoryItems.find(i => i.id === itemId);
+    if (!item) return;
+    
+    const newList = [...treatmentsList];
+    const materials = newList[rowIndex].materials || [];
+    
+    const existingIdx = materials.findIndex(m => m.itemId === itemId);
+    if (existingIdx >= 0) {
+      materials[existingIdx].quantity += 1;
+    } else {
+      materials.push({ itemId: item.id, itemName: item.item_name, quantity: 1 });
+    }
+    
+    newList[rowIndex].materials = materials;
+    setTreatmentsList(newList);
+  }
+
+  function handleRemoveMaterialFromRow(rowIndex, materialId) {
+    const newList = [...treatmentsList];
+    newList[rowIndex].materials = (newList[rowIndex].materials || []).filter(m => m.itemId !== materialId);
+    setTreatmentsList(newList);
+  }
+
+  function handleMaterialQtyChange(rowIndex, materialId, qty) {
+    const newList = [...treatmentsList];
+    const materials = newList[rowIndex].materials || [];
+    const mat = materials.find(m => m.itemId === materialId);
+    if (mat) {
+      mat.quantity = Math.max(1, parseInt(qty) || 1);
+    }
+    newList[rowIndex].materials = materials;
+    setTreatmentsList(newList);
+  }
 
   function fetchPatientFollowups() {
     setFollowupsLoading(true);
@@ -445,7 +529,7 @@ export default function PatientProfile({ params }) {
         });
         setShowTreatModal(false);
         // Reset list, details, and follow-up states
-        setTreatmentsList([{ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+        setTreatmentsList([{ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '', materials: [] }]);
         setVisitDate(new Date().toISOString().split('T')[0]);
         setFollowupRequired(false);
         setFollowupDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
@@ -1999,6 +2083,64 @@ export default function PatientProfile({ params }) {
                   value={item.notes} 
                   onChange={e => handleTreatmentRowChange(idx, 'notes', e.target.value)} 
                 />
+              </div>
+
+              {/* Materials consumption checklist */}
+              <div style={{ marginTop: '12px', background: 'rgba(255,255,255,0.02)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '8px' }}>
+                  📦 Materials Consumption Deduction:
+                </span>
+                
+                {item.materials && item.materials.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' }}>
+                    {item.materials.map(mat => (
+                      <div key={mat.itemId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                        <span>🔹 {mat.itemName}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input 
+                            type="number" 
+                            className="input-field" 
+                            value={mat.quantity} 
+                            onChange={e => handleMaterialQtyChange(idx, mat.itemId, e.target.value)} 
+                            style={{ width: '50px', padding: '2px 6px', margin: 0, fontSize: '0.8rem', textAlign: 'center' }}
+                            min="1"
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => handleRemoveMaterialFromRow(idx, mat.itemId)}
+                            style={{ background: 'none', border: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)', fontStyle: 'italic', marginBottom: '10px' }}>
+                    No materials currently selected for deduction.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <select 
+                    className="input-field" 
+                    onChange={e => {
+                      if (e.target.value) {
+                        handleAddMaterialToRow(idx, e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    style={{ fontSize: '0.75rem', padding: '4px 8px', margin: 0, flex: 1 }}
+                  >
+                    <option value="">+ Add Material to Deduct...</option>
+                    {inventoryItems.map(i => (
+                      <option key={i.id} value={i.id}>
+                        {i.item_name} ({i.unit}) - In Stock: {i.current_stock}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div style={{ textAlign: 'right', fontWeight: 600, fontSize: '0.8125rem', marginTop: '8px', color: 'var(--color-text-secondary)' }}>
