@@ -31,6 +31,14 @@ export default function PatientProfile({ params }) {
   const [selectedTreatment, setSelectedTreatment] = useState(null);
   const [editTreatFormData, setEditTreatFormData] = useState({ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '', dentist: 'Dr. Anand', date: new Date().toISOString().split('T')[0] });
 
+  const [showBillingModal, setShowBillingModal] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterDentist, setFilterDentist] = useState('');
+  const [medicalNotesText, setMedicalNotesText] = useState('');
+  const [isNotesSaving, setIsNotesSaving] = useState(false);
+
   function handleAddMedicine() {
     setRxFormData({ ...rxFormData, medications: [...rxFormData.medications, { name: '', price: '' }] });
   }
@@ -78,6 +86,7 @@ export default function PatientProfile({ params }) {
             address: d.address || '',
             medicalHistory: d.medicalHistory || ''
           });
+          setMedicalNotesText(d.medicalHistory || '');
         }
         setLoading(false);
       })
@@ -95,6 +104,7 @@ export default function PatientProfile({ params }) {
       if (res.ok) {
         const updated = await res.json();
         setData({ ...data, ...updated });
+        setMedicalNotesText(updated.medicalHistory || '');
         setShowEditModal(false);
       } else {
         alert('Failed to update profile');
@@ -264,6 +274,33 @@ export default function PatientProfile({ params }) {
     }
   }
 
+  async function handleSaveMedicalNotes() {
+    setIsNotesSaving(true);
+    try {
+      const res = await fetch(`/api/patients/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editFormData,
+          medicalHistory: medicalNotesText
+        })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setData({ ...data, ...updated });
+        setEditFormData({ ...editFormData, medicalHistory: medicalNotesText });
+        setShowNotesModal(false);
+      } else {
+        alert('Failed to update medical notes');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error saving medical notes');
+    } finally {
+      setIsNotesSaving(false);
+    }
+  }
+
   function openEditTreatModal(e, t, parsed) {
     e.preventDefault();
     e.stopPropagation();
@@ -317,6 +354,24 @@ export default function PatientProfile({ params }) {
   const totalConsultationFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.consultationFee) || 0), 0);
   const grandTotalRevenue = totalTreatmentFee + totalSurgeryFee + totalConsultationFee;
 
+  const uniqueDentists = Array.from(new Set(patientTreatments.map(t => t.dentist))).filter(Boolean);
+
+  const filteredTreatments = patientTreatments.filter(t => {
+    if (filterStartDate && t.date < filterStartDate) return false;
+    if (filterEndDate && t.date > filterEndDate) return false;
+    if (filterDentist && t.dentist !== filterDentist) return false;
+    return true;
+  });
+
+  const filteredTotalTreatment = filteredTreatments.reduce((sum, t) => sum + (parseFloat(t.treatment_fee) || 0), 0);
+  const filteredTotalSurgery = filteredTreatments.reduce((sum, t) => sum + (parseFloat(t.surgery_fee) || 0), 0);
+  const filteredTotalConsultation = filteredTreatments.reduce((sum, t) => sum + (parseFloat(t.consultation_fee) || 0), 0);
+  const filteredGrandTotal = filteredTotalTreatment + filteredTotalSurgery + filteredTotalConsultation;
+  const filteredPayments = filteredGrandTotal;
+  const filteredOutstanding = 0;
+
+  const billingPdfUrl = `/api/patients/${id}/billing-pdf?startDate=${filterStartDate}&endDate=${filterEndDate}&dentist=${encodeURIComponent(filterDentist)}`;
+
   return (
     <div className="stagger">
       {/* Back */}
@@ -350,14 +405,22 @@ export default function PatientProfile({ params }) {
 
       {/* Info Cards Row */}
       <div className="stats-grid" style={{ marginBottom: 'var(--space-lg)' }}>
-        <div className="glass-card stat-card">
+        <div 
+          className="glass-card stat-card clickable" 
+          onClick={() => document.getElementById('appointment-history')?.scrollIntoView({ behavior: 'smooth' })}
+          data-tooltip="Click to view visit history"
+        >
           <div className="stat-icon blue">📅</div>
           <div className="stat-info">
             <div className="stat-value">{patientAppts.length}</div>
             <div className="stat-label">Total Visits</div>
           </div>
         </div>
-        <div className="glass-card stat-card">
+        <div 
+          className="glass-card stat-card clickable" 
+          onClick={() => document.getElementById('treatment-history')?.scrollIntoView({ behavior: 'smooth' })}
+          data-tooltip="Click to view treatments"
+        >
           <div className="stat-icon green">🦷</div>
           <div className="stat-info">
             <div className="stat-value">{patientTreatments.length}</div>
@@ -365,7 +428,11 @@ export default function PatientProfile({ params }) {
           </div>
         </div>
         {user?.role === 'admin' && (
-          <div className="glass-card stat-card">
+          <div 
+            className="glass-card stat-card clickable" 
+            onClick={() => setShowBillingModal(true)}
+            data-tooltip="Click to view billing breakdown"
+          >
             <div className="stat-icon purple">💰</div>
             <div className="stat-info">
               <div className="stat-value">₹{totalSpent}</div>
@@ -373,10 +440,14 @@ export default function PatientProfile({ params }) {
             </div>
           </div>
         )}
-        <div className="glass-card stat-card">
+        <div 
+          className="glass-card stat-card clickable" 
+          onClick={() => setShowNotesModal(true)}
+          data-tooltip="Click to view medical notes history"
+        >
           <div className="stat-icon orange">📋</div>
           <div className="stat-info">
-            <div className="stat-value" style={{ fontSize: '0.9rem', fontWeight: 500 }}>{patient.medicalHistory}</div>
+            <div className="stat-value" style={{ fontSize: '0.9rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>{patient.medicalHistory || 'None'}</div>
             <div className="stat-label">Medical Notes</div>
           </div>
         </div>
@@ -384,7 +455,7 @@ export default function PatientProfile({ params }) {
 
       <div className="grid-2">
         {/* Treatment History */}
-        <div className="glass-card-flat">
+        <div id="treatment-history" className="glass-card-flat">
           <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Treatment History</h2>
           {patientTreatments.length > 0 ? (
             <div className="timeline">
@@ -457,7 +528,7 @@ export default function PatientProfile({ params }) {
         </div>
 
         {/* Appointment History */}
-        <div className="glass-card-flat">
+        <div id="appointment-history" className="glass-card-flat">
           <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Appointment History</h2>
           <div className="table-container">
             <table className="data-table">
@@ -837,6 +908,164 @@ export default function PatientProfile({ params }) {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Billing Breakdown Modal */}
+      <Modal 
+        isOpen={showBillingModal} 
+        onClose={() => setShowBillingModal(false)} 
+        title="Patient Billing Summary" 
+        footer={
+          <div className="flex-between" style={{ width: '100%' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <a href={`${billingPdfUrl}&download=true`} className="btn btn-primary btn-sm">⬇️ Download PDF</a>
+              <a href={billingPdfUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">🖨️ Print Report</a>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowBillingModal(false)}>Close</button>
+          </div>
+        }
+      >
+        {/* Filters */}
+        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', marginBottom: '16px' }}>
+          <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '12px', color: 'var(--color-accent)' }}>Filter Transactions</h4>
+          <div className="grid-3">
+            <div className="input-group">
+              <label style={{ fontSize: '0.75rem' }}>Start Date</label>
+              <input type="date" className="input-field" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }} />
+            </div>
+            <div className="input-group">
+              <label style={{ fontSize: '0.75rem' }}>End Date</label>
+              <input type="date" className="input-field" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }} />
+            </div>
+            <div className="input-group">
+              <label style={{ fontSize: '0.75rem' }}>Dentist</label>
+              <select className="input-field" value={filterDentist} onChange={e => setFilterDentist(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }}>
+                <option value="">All Dentists</option>
+                {uniqueDentists.map((d, idx) => (
+                  <option key={idx} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {(filterStartDate || filterEndDate || filterDentist) && (
+            <button 
+              className="btn btn-ghost btn-sm" 
+              onClick={() => { setFilterStartDate(''); setFilterEndDate(''); setFilterDentist(''); }} 
+              style={{ marginTop: '8px', padding: '4px 0', fontSize: '0.8rem' }}
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+
+        {/* Aggregate Billing Summary */}
+        <div className="stats-grid" style={{ gap: '10px', marginBottom: '16px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Billed Amount</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: '4px' }}>₹{filteredGrandTotal}</div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Payments Received</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-success)', marginTop: '4px' }}>₹{filteredPayments}</div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Outstanding Balance</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: filteredOutstanding > 0 ? 'var(--color-danger)' : 'var(--color-text-primary)', marginTop: '4px' }}>₹{filteredOutstanding}</div>
+          </div>
+        </div>
+
+        {/* Detailed Breakdown Grid */}
+        <div className="stats-grid" style={{ gap: '10px', marginBottom: '16px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Treatment Fees</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalTreatment}</div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Surgery Fees</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalSurgery}</div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Consultation Fees</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalConsultation}</div>
+          </div>
+        </div>
+
+        {/* Breakdown Table */}
+        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '8px', color: 'var(--color-text-primary)' }}>Treatment Wise Breakdown</h4>
+        {filteredTreatments.length > 0 ? (
+          <div className="table-container" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+            <table className="data-table" style={{ fontSize: '0.8125rem' }}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Treatment</th>
+                  <th>Dentist</th>
+                  <th style={{ textAlign: 'right' }}>Treat (₹)</th>
+                  <th style={{ textAlign: 'right' }}>Surg (₹)</th>
+                  <th style={{ textAlign: 'right' }}>Cons (₹)</th>
+                  <th style={{ textAlign: 'right' }}>Total (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTreatments.map((t) => {
+                  let parsed = { name: t.description };
+                  try {
+                    if (t.description && t.description.startsWith('{')) {
+                      parsed = JSON.parse(t.description);
+                    }
+                  } catch(e) {}
+                  
+                  const name = parsed.name || parsed.description || t.description;
+
+                  return (
+                    <tr key={t.id}>
+                      <td style={{ fontWeight: 500 }}>{t.date}</td>
+                      <td>{name}</td>
+                      <td>{t.dentist}</td>
+                      <td style={{ textAlign: 'right' }}>{(t.treatment_fee || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ textAlign: 'right' }}>{(t.surgery_fee || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ textAlign: 'right' }}>{(t.consultation_fee || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(t.cost || 0).toLocaleString('en-IN')}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+            No billing records found matching active filters.
+          </div>
+        )}
+      </Modal>
+
+      {/* Medical Notes Modal */}
+      <Modal 
+        isOpen={showNotesModal} 
+        onClose={() => { setShowNotesModal(false); setMedicalNotesText(patient.medicalHistory || ''); }} 
+        title="Medical Notes History / Editor" 
+        footer={
+          <>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setShowNotesModal(false); setMedicalNotesText(patient.medicalHistory || ''); }} disabled={isNotesSaving}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={handleSaveMedicalNotes} disabled={isNotesSaving}>{isNotesSaving ? 'Saving...' : 'Save Notes'}</button>
+          </>
+        }
+      >
+        <div className="input-group">
+          <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--color-text-secondary)' }}>Active Clinical & Medical History Notes</label>
+          <p style={{ fontSize: '0.8rem', color: 'var(--color-text-tertiary)', marginBottom: '8px' }}>
+            Note: Updating these notes will instantly refresh the patient's card file, profile dashboard, and audit histories.
+          </p>
+          <textarea 
+            className="input-field" 
+            placeholder="Allergies, conditions, medications..." 
+            rows={8} 
+            value={medicalNotesText} 
+            onChange={e => setMedicalNotesText(e.target.value)}
+            disabled={isNotesSaving}
+            style={{ fontSize: '0.9rem', lineHeight: '1.4' }}
+          />
+        </div>
       </Modal>
     </div>
   );
