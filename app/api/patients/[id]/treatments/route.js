@@ -46,7 +46,6 @@ export async function POST(request, { params }) {
       // JSON metadata serialization to bypass structural schema limitations
       const serializedDescription = JSON.stringify({
         name: desc,
-        tooth_number: item.toothNumber || '',
         notes: item.notes || '',
         last_modified_by: username,
         last_modified_at: new Date().toISOString()

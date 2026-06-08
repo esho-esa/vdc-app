@@ -8,7 +8,7 @@ export async function PUT(request, { params }) {
     const { id: patientId, treatmentId } = await params;
     const body = await request.json();
 
-    const { name, description, toothNumber, notes, treatmentFee, surgeryFee, consultationFee, dentist, date } = body;
+    const { name, description, notes, treatmentFee, surgeryFee, consultationFee, dentist, date } = body;
 
     const desc = name || description;
     if (!desc || !date) {
@@ -32,7 +32,6 @@ export async function PUT(request, { params }) {
     // Serialize details inside description column
     const serializedDescription = JSON.stringify({
       name: desc,
-      tooth_number: toothNumber || '',
       notes: notes || '',
       last_modified_by: username,
       last_modified_at: new Date().toISOString()

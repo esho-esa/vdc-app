@@ -1071,6 +1071,115 @@ select.input-field {
   margin-top: 2px;
 }
 
+/* Treatment Card Styling */
+.treatment-card {
+  position: relative;
+  background: var(--glass-bg-thin);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.treatment-card:hover {
+  background: var(--color-surface-hover);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-hover);
+}
+
+.treatment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.treatment-card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.treatment-card-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.treatment-card-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  transition: all 0.15s ease;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.treatment-card-action-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+.treatment-card-action-btn.edit:hover {
+  color: #007aff;
+  background: rgba(0, 122, 255, 0.12);
+  border-color: #007aff;
+}
+
+.treatment-card-action-btn.delete:hover {
+  color: #ff3b30;
+  background: rgba(255, 59, 48, 0.12);
+  border-color: #ff3b30;
+}
+
+.treatment-card-date {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+}
+
+.treatment-card-notes {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-accent);
+  margin-top: 4px;
+}
+
+.treatment-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  border-top: 1px dashed var(--color-divider);
+  padding-top: 8px;
+}
+
+.treatment-card-dentist {
+  font-weight: 500;
+}
+
+.treatment-card-cost {
+  font-weight: 600;
+  color: var(--color-success);
+}
+
 /* ============================
    NOTIFICATION ITEMS
    ============================ */

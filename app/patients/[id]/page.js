@@ -20,7 +20,7 @@ export default function PatientProfile({ params }) {
 
   // New multi-treatment state variables
   const [showTreatModal, setShowTreatModal] = useState(false);
-  const [treatmentsList, setTreatmentsList] = useState([{ description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+  const [treatmentsList, setTreatmentsList] = useState([{ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
   const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
   const [visitDentist, setVisitDentist] = useState('Dr. Anand');
   const [isTreatSaving, setIsTreatSaving] = useState(false);
@@ -29,7 +29,7 @@ export default function PatientProfile({ params }) {
   const [showEditTreatModal, setShowEditTreatModal] = useState(false);
   const [showTreatDetailsModal, setShowTreatDetailsModal] = useState(false);
   const [selectedTreatment, setSelectedTreatment] = useState(null);
-  const [editTreatFormData, setEditTreatFormData] = useState({ description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '', dentist: 'Dr. Anand', date: new Date().toISOString().split('T')[0] });
+  const [editTreatFormData, setEditTreatFormData] = useState({ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '', dentist: 'Dr. Anand', date: new Date().toISOString().split('T')[0] });
 
   function handleAddMedicine() {
     setRxFormData({ ...rxFormData, medications: [...rxFormData.medications, { name: '', price: '' }] });
@@ -48,7 +48,7 @@ export default function PatientProfile({ params }) {
 
   // Multi-treatment dynamic row handlers
   function handleAddTreatmentRow() {
-    setTreatmentsList([...treatmentsList, { description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+    setTreatmentsList([...treatmentsList, { description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
   }
 
   function handleRemoveTreatmentRow(index) {
@@ -148,7 +148,6 @@ export default function PatientProfile({ params }) {
     try {
       const payload = treatmentsList.map(item => ({
         description: item.description,
-        toothNumber: item.toothNumber,
         notes: item.notes,
         treatmentFee: item.treatmentFee || '0',
         surgeryFee: item.surgeryFee || '0',
@@ -171,7 +170,7 @@ export default function PatientProfile({ params }) {
         });
         setShowTreatModal(false);
         // Reset list and details
-        setTreatmentsList([{ description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+        setTreatmentsList([{ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
         setVisitDate(new Date().toISOString().split('T')[0]);
       } else {
         alert('Failed to record treatments');
@@ -196,7 +195,6 @@ export default function PatientProfile({ params }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: editTreatFormData.description,
-          toothNumber: editTreatFormData.toothNumber,
           notes: editTreatFormData.notes,
           treatmentFee: editTreatFormData.treatmentFee,
           surgeryFee: editTreatFormData.surgeryFee,
@@ -272,7 +270,6 @@ export default function PatientProfile({ params }) {
     setSelectedTreatment(t);
     setEditTreatFormData({
       description: parsed.name || parsed.description || t.description,
-      toothNumber: parsed.tooth_number || '',
       notes: parsed.notes || '',
       treatmentFee: t.treatment_fee.toString(),
       surgeryFee: t.surgery_fee.toString(),
@@ -305,10 +302,20 @@ export default function PatientProfile({ params }) {
   }
 
   const patientAppts = data.appointments || [];
-  const patientTreatments = data.treatments || [];
+  // Sort patient treatments: newest date first, then by ID descending to preserve batch insertion ordering
+  const patientTreatments = [...(data.treatments || [])].sort((a, b) => {
+    const dateCompare = b.date.localeCompare(a.date);
+    if (dateCompare !== 0) return dateCompare;
+    return b.id.localeCompare(a.id);
+  });
   const patientPrescriptions = data.prescriptions || [];
   const totalSpent = patientTreatments.reduce((s, t) => s + t.cost, 0);
   const avatar = patient.name ? patient.name.substring(0, 2).toUpperCase() : 'U';
+
+  const totalTreatmentFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.treatmentFee) || 0), 0);
+  const totalSurgeryFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.surgeryFee) || 0), 0);
+  const totalConsultationFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.consultationFee) || 0), 0);
+  const grandTotalRevenue = totalTreatmentFee + totalSurgeryFee + totalConsultationFee;
 
   return (
     <div className="stagger">
@@ -382,7 +389,7 @@ export default function PatientProfile({ params }) {
           {patientTreatments.length > 0 ? (
             <div className="timeline">
               {patientTreatments.map(t => {
-                let parsed = { name: t.description, tooth_number: '', notes: '' };
+                let parsed = { name: t.description, notes: '' };
                 try {
                   if (t.description && t.description.startsWith('{')) {
                     parsed = JSON.parse(t.description);
@@ -390,41 +397,54 @@ export default function PatientProfile({ params }) {
                 } catch (e) { /* fallback to plain text */ }
 
                 const treatmentName = parsed.name || parsed.description || t.description;
-                const toothStr = parsed.tooth_number;
                 const notesStr = parsed.notes;
 
                 return (
                   <div 
                     key={t.id} 
-                    className="timeline-item" 
+                    className="treatment-card" 
                     onClick={() => openTreatDetailsModal(t, parsed)}
-                    style={{ cursor: 'pointer', transition: 'background 0.2s', padding: '12px 16px', borderRadius: '8px' }}
                   >
-                    <div className="timeline-dot green" />
-                    <div className="timeline-time flex-between" style={{ width: '100%' }}>
-                      <span>{t.date}</span>
-                      <div style={{ display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
-                        <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: '0.75rem', color: 'var(--color-accent)' }} onClick={(e) => openEditTreatModal(e, t, parsed)}>✏️ Edit</button>
-                        <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: '0.75rem', color: 'var(--color-danger)' }} onClick={(e) => handleDeleteTreatment(t.id)}>🗑️ Delete</button>
+                    <div className="timeline-dot green" style={{ left: '-26px', top: '20px' }} />
+                    <div className="treatment-card-header">
+                      <div>
+                        <div className="treatment-card-date">{t.date}</div>
+                        <div className="treatment-card-title">{treatmentName}</div>
+                      </div>
+                      <div className="treatment-card-actions" onClick={e => e.stopPropagation()}>
+                        <button 
+                          className="treatment-card-action-btn edit" 
+                          title="Edit Treatment"
+                          onClick={(e) => openEditTreatModal(e, t, parsed)}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/>
+                          </svg>
+                        </button>
+                        <button 
+                          className="treatment-card-action-btn delete" 
+                          title="Delete Treatment"
+                          onClick={(e) => handleDeleteTreatment(t.id)}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            <line x1="10" y1="11" x2="10" y2="17"/>
+                            <line x1="14" y1="11" x2="14" y2="17"/>
+                          </svg>
+                        </button>
                       </div>
                     </div>
-                    <div className="timeline-text" style={{ fontWeight: 600, fontSize: '0.9375rem', marginTop: '4px' }}>
-                      {treatmentName}
-                    </div>
-                    {toothStr && (
-                      <div style={{ fontSize: '0.8125rem', marginTop: '2px', color: 'var(--color-accent)', fontWeight: 500 }}>
-                        🦷 Tooth: {toothStr}
-                      </div>
-                    )}
                     {notesStr && (
-                      <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', fontStyle: 'italic', marginTop: '2px' }}>
-                        Note: {notesStr}
+                      <div className="treatment-card-notes">
+                        {notesStr}
                       </div>
                     )}
-                    <div className="timeline-subtext" style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>{t.dentist}</span>
+                    <div className="treatment-card-footer">
+                      <span className="treatment-card-dentist">👨‍⚕️ {t.dentist}</span>
                       {user?.role === 'admin' && (
-                        <span className="badge badge-info" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>₹{t.cost}</span>
+                        <span className="treatment-card-cost">₹{t.cost}</span>
                       )}
                     </div>
                   </div>
@@ -642,27 +662,15 @@ export default function PatientProfile({ params }) {
               )}
               <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '12px', color: 'var(--color-accent)' }}>Treatment #{idx + 1}</h4>
               
-              <div className="grid-2">
-                <div className="input-group">
-                  <label>Treatment Name (Required)</label>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    placeholder="e.g. Scaling, Extraction" 
-                    value={item.description} 
-                    onChange={e => handleTreatmentRowChange(idx, 'description', e.target.value)} 
-                  />
-                </div>
-                <div className="input-group">
-                  <label>Tooth Number(s) (Optional)</label>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    placeholder="e.g. 14, 15" 
-                    value={item.toothNumber} 
-                    onChange={e => handleTreatmentRowChange(idx, 'toothNumber', e.target.value)} 
-                  />
-                </div>
+              <div className="input-group" style={{ marginBottom: '8px' }}>
+                <label>Treatment Name / Description (Required)</label>
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  placeholder="e.g. Scaling, Extraction, Root Canal" 
+                  value={item.description} 
+                  onChange={e => handleTreatmentRowChange(idx, 'description', e.target.value)} 
+                />
               </div>
 
               <div className="grid-3" style={{ marginTop: '8px' }}>
@@ -718,10 +726,27 @@ export default function PatientProfile({ params }) {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddTreatmentRow}>+ Add Another Treatment</button>
-          <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-success)' }}>
-            Visit Total: ₹{
-              treatmentsList.reduce((sum, item) => sum + (parseFloat(item.treatmentFee) || 0) + (parseFloat(item.surgeryFee) || 0) + (parseFloat(item.consultationFee) || 0), 0)
-            }
+        </div>
+
+        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', marginTop: '16px' }}>
+          <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '12px', color: 'var(--color-accent)', borderBottom: '1px solid var(--color-divider)', paddingBottom: '6px' }}>Visit Revenue Breakdown</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.875rem' }}>
+            <div className="flex-between">
+              <span style={{ color: 'var(--color-text-secondary)' }}>Total Treatment Fee:</span>
+              <span style={{ fontWeight: 500 }}>₹{totalTreatmentFee}</span>
+            </div>
+            <div className="flex-between">
+              <span style={{ color: 'var(--color-text-secondary)' }}>Total Surgery Fee:</span>
+              <span style={{ fontWeight: 500 }}>₹{totalSurgeryFee}</span>
+            </div>
+            <div className="flex-between">
+              <span style={{ color: 'var(--color-text-secondary)' }}>Total Consultation Fee:</span>
+              <span style={{ fontWeight: 500 }}>₹{totalConsultationFee}</span>
+            </div>
+            <div className="flex-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '8px', fontWeight: 700, color: 'var(--color-success)', fontSize: '1.05rem' }}>
+              <span>Grand Total Revenue:</span>
+              <span>₹{grandTotalRevenue}</span>
+            </div>
           </div>
         </div>
       </Modal>
@@ -734,20 +759,14 @@ export default function PatientProfile({ params }) {
         </>
       }>
         <div className="input-group">
-          <label>Treatment Name</label>
+          <label>Treatment Name / Description</label>
           <input type="text" className="input-field" placeholder="e.g. Scaling" value={editTreatFormData.description} onChange={e => setEditTreatFormData({...editTreatFormData, description: e.target.value})} />
         </div>
         <div className="grid-2">
           <div className="input-group">
-            <label>Tooth Number(s) (Optional)</label>
-            <input type="text" className="input-field" placeholder="e.g. 14, 15, 27" value={editTreatFormData.toothNumber} onChange={e => setEditTreatFormData({...editTreatFormData, toothNumber: e.target.value})} />
-          </div>
-          <div className="input-group">
             <label>Dentist</label>
             <input type="text" className="input-field" value={editTreatFormData.dentist} onChange={e => setEditTreatFormData({...editTreatFormData, dentist: e.target.value})} />
           </div>
-        </div>
-        <div className="grid-2">
           <div className="input-group">
             <label>Date</label>
             <input type="date" className="input-field" value={editTreatFormData.date} onChange={e => setEditTreatFormData({...editTreatFormData, date: e.target.value})} />
@@ -792,12 +811,6 @@ export default function PatientProfile({ params }) {
               <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--color-text)' }}>{selectedTreatment.parsed?.name}</h3>
               <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginTop: '4px' }}>Date: {selectedTreatment.date} · Recorded by {selectedTreatment.dentist}</p>
             </div>
-            {selectedTreatment.parsed?.tooth_number && (
-              <div>
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Tooth Number(s):</span>
-                <span style={{ marginLeft: '8px', fontSize: '0.9rem', color: 'var(--color-accent)', fontWeight: 600 }}>🦷 {selectedTreatment.parsed?.tooth_number}</span>
-              </div>
-            )}
             {selectedTreatment.parsed?.notes && (
               <div>
                 <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Clinical Notes:</span>
