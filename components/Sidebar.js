@@ -30,6 +30,7 @@ export default function Sidebar({ isOpen, onClose }) {
   if (userRole === 'admin') {
     fullNav.splice(1, 0, { label: 'Revenue', href: '/dashboard/revenue', icon: '💰' });
     fullNav.splice(3, 0, { label: 'Outstanding Payments', href: '/reports/outstanding', icon: '📋' });
+    fullNav.splice(4, 0, { label: 'Follow-Ups & Insights', href: '/reports/follow-ups', icon: '📈' });
   }
 
   return (

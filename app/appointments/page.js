@@ -44,6 +44,8 @@ function formatDateStr(year, month, day) {
 export default function AppointmentsPage() {
   const [patients, setPatients] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [followups, setFollowups] = useState([]);
+  const [selectedFollowup, setSelectedFollowup] = useState(null);
   const [view, setView] = useState('month');
   const [currentDate, setCurrentDate] = useState(new Date(2026, 2, 18)); // March 18 2026
   const [showModal, setShowModal] = useState(false);
@@ -55,6 +57,7 @@ export default function AppointmentsPage() {
   useEffect(() => {
     fetchAppointments();
     fetchPatients();
+    fetchFollowups();
   }, []);
 
   async function fetchAppointments() {
@@ -74,6 +77,33 @@ export default function AppointmentsPage() {
       setPatients(data);
     } catch (error) {
       console.error('Failed to fetch patients:', error);
+    }
+  }
+
+  async function fetchFollowups() {
+    try {
+      const res = await fetch('/api/follow-ups');
+      const data = await res.json();
+      setFollowups(data);
+    } catch (error) {
+      console.error('Failed to fetch follow-ups:', error);
+    }
+  }
+
+  async function updateFollowupStatus(fId, newStatus) {
+    try {
+      const res = await fetch(`/api/follow-ups/${fId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setFollowups(followups.map(f => f.id === fId ? updated : f));
+        setSelectedFollowup(updated);
+      }
+    } catch (error) {
+      console.error('Failed to update follow-up status:', error);
     }
   }
 
@@ -209,6 +239,15 @@ export default function AppointmentsPage() {
     return map;
   }, [appointments]);
 
+  const followupsByDate = useMemo(() => {
+    const map = {};
+    followups.forEach(f => {
+      if (!map[f.followup_date]) map[f.followup_date] = [];
+      map[f.followup_date].push(f);
+    });
+    return map;
+  }, [followups]);
+
   function navigateMonth(dir) {
     setCurrentDate(new Date(year, month + dir, 1));
   }
@@ -274,16 +313,50 @@ export default function AppointmentsPage() {
             {monthCells.map((cell, i) => {
               const dateStr = cell.otherMonth ? '' : formatDateStr(year, month, cell.day);
               const cellAppts = dateStr ? (apptsByDate[dateStr] || []) : [];
+              const cellFollowups = dateStr ? (followupsByDate[dateStr] || []) : [];
               const isToday = dateStr === today;
               return (
                 <div key={i} className={`calendar-cell ${cell.otherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}`}>
                   <div className="calendar-cell-date">{cell.day}</div>
-                  {cellAppts.slice(0, 3).map(a => (
+                  {cellAppts.slice(0, 2).map(a => (
                     <div key={a.id} className={`calendar-event ${a.type}`} onClick={() => setSelectedAppt(a)} title={`${formatTime12h(a.time)} - ${a.patient_name || a.patientName}`}>
                       {formatTime12h(a.time)} {(a.patient_name || a.patientName || '').split(' ')[0]}
                     </div>
                   ))}
-                  {cellAppts.length > 3 && <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-tertiary)', paddingLeft: 6 }}>+{cellAppts.length - 3} more</div>}
+                  {cellFollowups.slice(0, 2).map(f => (
+                    <div 
+                      key={f.id} 
+                      className="calendar-event" 
+                      onClick={() => setSelectedFollowup(f)} 
+                      title={`Follow-up (${f.status}): ${f.followup_type} - ${f.patients?.name}`}
+                      style={{
+                        background: f.status === 'Completed' ? 'rgba(16, 185, 129, 0.12)' : 
+                                    f.status === 'Missed' ? 'rgba(239, 68, 68, 0.12)' : 
+                                    f.status === 'Cancelled' ? 'rgba(107, 114, 128, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                        color: f.status === 'Completed' ? '#10b981' : 
+                               f.status === 'Missed' ? '#ef4444' : 
+                               f.status === 'Cancelled' ? '#6b7280' : 'var(--color-accent)',
+                        borderLeft: f.status === 'Completed' ? '3px solid #10b981' : 
+                                    f.status === 'Missed' ? '3px solid #ef4444' : 
+                                    f.status === 'Cancelled' ? '3px solid #6b7280' : '3px solid var(--color-accent)',
+                        padding: '2px 4px',
+                        fontSize: '0.6875rem',
+                        borderRadius: '4px',
+                        marginBottom: '3px',
+                        cursor: 'pointer',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      🔁 {(f.patients?.name || '').split(' ')[0]}: {f.followup_type}
+                    </div>
+                  ))}
+                  {cellAppts.length + cellFollowups.length > 4 && (
+                    <div style={{ fontSize: '0.625rem', color: 'var(--color-text-tertiary)', paddingLeft: 6 }}>
+                      +{cellAppts.length + cellFollowups.length - 4} more
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -416,6 +489,73 @@ export default function AppointmentsPage() {
                 </button>
             </div>
           </>
+        )}
+      </Modal>
+
+      {/* Selected Follow-Up Details Modal */}
+      <Modal 
+        isOpen={!!selectedFollowup} 
+        onClose={() => setSelectedFollowup(null)} 
+        title="Follow-Up Details"
+        footer={
+          <div className="flex-between" style={{ width: '100%' }}>
+            <button 
+              className="btn btn-danger btn-sm" 
+              onClick={() => {
+                if (confirm('Cancel this follow-up?')) {
+                  updateFollowupStatus(selectedFollowup.id, 'Cancelled');
+                  setSelectedFollowup(null);
+                }
+              }}
+              disabled={selectedFollowup?.status === 'Cancelled'}
+            >
+              ✕ Cancel Follow-Up
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setSelectedFollowup(null)}>Close</button>
+          </div>
+        }
+      >
+        {selectedFollowup && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid var(--color-border)', paddingBottom: '12px' }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--color-success-light)', color: 'var(--color-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                🔁
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--color-accent)' }}>
+                  {selectedFollowup.followup_type}
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                  Scheduled Date: {selectedFollowup.followup_date}
+                </p>
+              </div>
+            </div>
+            <div style={{ fontSize: '0.9rem', color: 'var(--color-text-primary)' }}>
+              <strong>Patient:</strong> {selectedFollowup.patients?.name || 'N/A'} ({selectedFollowup.patients?.phone || 'No phone'})
+            </div>
+            {selectedFollowup.notes && (
+              <div>
+                <strong>Clinical Notes:</strong>
+                <p style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', fontSize: '0.85rem', fontStyle: 'italic', marginTop: '4px', border: '1px solid var(--color-border)' }}>
+                  {selectedFollowup.notes}
+                </p>
+              </div>
+            )}
+            <div className="input-group" style={{ marginTop: '8px' }}>
+              <label>Update Follow-Up Status</label>
+              <select
+                className="input-field"
+                value={selectedFollowup.status}
+                onChange={(e) => updateFollowupStatus(selectedFollowup.id, e.target.value)}
+                style={{ marginTop: '4px' }}
+              >
+                <option value="Scheduled">Scheduled</option>
+                <option value="Completed">Completed</option>
+                <option value="Missed">Missed</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+          </div>
         )}
       </Modal>
 

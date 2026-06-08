@@ -38,6 +38,9 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ revenue: 0, statusCounts: {}, totalPatients: 0 });
   const [activityFeed, setActivityFeed] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [followups, setFollowups] = useState([]);
+  const [processingReminders, setProcessingReminders] = useState(false);
+  const [activeFollowupTab, setActiveFollowupTab] = useState('today');
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -68,6 +71,8 @@ export default function Dashboard() {
 
       // Fetch notifications separately (non-blocking)
       fetch('/api/notifications').then(r => r.json()).then(n => setNotifications(n || [])).catch(() => {});
+      // Fetch followups separately (non-blocking)
+      fetch('/api/follow-ups').then(r => r.json()).then(f => setFollowups(f || [])).catch(() => {});
     } catch (e) {
       console.error(e);
     } finally {
@@ -78,6 +83,11 @@ export default function Dashboard() {
   const today = new Date().toISOString().split('T')[0]; // Current date
   const todayAppts = appointments.filter(a => a.date === today);
   const upcomingAppts = appointments.filter(a => a.date > today).slice(0, 4);
+  
+  const todaysFollowups = followups.filter(f => f.followup_date === today && f.status === 'Scheduled');
+  const upcomingFollowups = followups.filter(f => f.followup_date > today && f.status === 'Scheduled').slice(0, 5);
+  const missedFollowups = followups.filter(f => f.status === 'Missed' || (f.followup_date < today && f.status === 'Scheduled'));
+
   const recentNotifs = notifications.slice(0, 4);
 
   const notifIcons = { missed: '⚠️', upcoming: '📅', reminder: '💬', alert: '🔔' };
@@ -164,6 +174,44 @@ Dr.S.Ezhil Ethel Selvam
       setNotifications(notifications.map(n => n.id === notif.id ? { ...n, read: true } : n));
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
+    }
+  }
+
+  async function handleRunReminderEngine() {
+    setProcessingReminders(true);
+    try {
+      const res = await fetch('/api/reminders/process', { method: 'POST' });
+      if (res.ok) {
+        const result = await res.json();
+        alert(`Successfully processed reminders! Sent: ${result.remindersSentCount}`);
+        fetchDashboardData(false);
+      } else {
+        alert('Failed to process reminders');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error processing reminders');
+    } finally {
+      setProcessingReminders(false);
+    }
+  }
+
+  async function handleUpdateFollowUpStatus(fId, newStatus) {
+    try {
+      const res = await fetch(`/api/follow-ups/${fId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setFollowups(followups.map(f => f.id === fId ? updated : f));
+      } else {
+        alert('Failed to update status');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error updating status');
     }
   }
 
@@ -280,6 +328,182 @@ Dr.S.Ezhil Ethel Selvam
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+
+          {/* Follow-Ups Dashboard Panel */}
+          <div className="glass-card-flat" id="dashboard-follow-ups">
+            <div className="flex-between" style={{ marginBottom: 'var(--space-md)', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 className="section-title" style={{ margin: 0 }}>Follow-Ups Dashboard</h2>
+                {todaysFollowups.length > 0 && (
+                  <span className="badge" style={{ background: 'var(--color-accent)', color: '#fff', border: 'none', borderRadius: '12px', padding: '2px 8px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                    {todaysFollowups.length} Today
+                  </span>
+                )}
+                {missedFollowups.length > 0 && (
+                  <span className="badge" style={{ background: 'var(--color-danger-light)', color: 'var(--color-danger)', border: 'none', borderRadius: '4px', padding: '2px 6px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                    {missedFollowups.length} Missed
+                  </span>
+                )}
+              </div>
+              <button 
+                className="btn btn-secondary btn-sm" 
+                onClick={handleRunReminderEngine} 
+                disabled={processingReminders}
+              >
+                {processingReminders ? 'Running Reminders...' : '⚙️ Run Reminder Engine'}
+              </button>
+            </div>
+
+            {/* Follow-Up Sub-Tabs */}
+            <div className="tabs" style={{ marginBottom: '16px', background: 'rgba(255,255,255,0.02)', padding: '4px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+              {[
+                { id: 'today', label: `Today's Follow-Ups (${todaysFollowups.length})` },
+                { id: 'upcoming', label: `Upcoming (${upcomingFollowups.length})` },
+                { id: 'missed', label: `Missed (${missedFollowups.length})` }
+              ].map(subTab => (
+                <button
+                  key={subTab.id}
+                  className={`tab ${activeFollowupTab === subTab.id ? 'active' : ''}`}
+                  onClick={() => setActiveFollowupTab(subTab.id)}
+                  style={{ fontSize: '0.75rem', padding: '6px 12px' }}
+                >
+                  {subTab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Sub-Tab Content Rendering */}
+            {activeFollowupTab === 'today' && (
+              todaysFollowups.length === 0 ? (
+                <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>No follow-ups scheduled for today.</div>
+              ) : (
+                <div className="table-container">
+                  <table className="data-table" style={{ fontSize: '0.8125rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Patient</th>
+                        <th>Type</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {todaysFollowups.map(f => (
+                        <tr key={f.id}>
+                          <td style={{ fontWeight: 600 }}>
+                            <Link href={`/patients/${f.patient_id}`} style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>
+                              {f.patients?.name || 'N/A'}
+                            </Link>
+                          </td>
+                          <td>
+                            <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>
+                              {f.followup_type}
+                            </span>
+                          </td>
+                          <td>{f.notes || '-'}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button className="badge" style={{ border: 'none', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--color-success)', cursor: 'pointer' }} onClick={() => handleUpdateFollowUpStatus(f.id, 'Completed')}>✓ Complete</button>
+                              <button className="badge" style={{ border: 'none', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--color-danger)', cursor: 'pointer' }} onClick={() => handleUpdateFollowUpStatus(f.id, 'Missed')}>⚠️ Missed</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {activeFollowupTab === 'upcoming' && (
+              upcomingFollowups.length === 0 ? (
+                <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>No upcoming follow-ups.</div>
+              ) : (
+                <div className="table-container">
+                  <table className="data-table" style={{ fontSize: '0.8125rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Patient</th>
+                        <th>Type</th>
+                        <th>Notes</th>
+                        <th>Cancel</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {upcomingFollowups.map(f => (
+                        <tr key={f.id}>
+                          <td style={{ fontWeight: 500 }}>{f.followup_date}</td>
+                          <td style={{ fontWeight: 600 }}>
+                            <Link href={`/patients/${f.patient_id}`} style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>
+                              {f.patients?.name || 'N/A'}
+                            </Link>
+                          </td>
+                          <td>{f.followup_type}</td>
+                          <td>{f.notes || '-'}</td>
+                          <td>
+                            <button className="badge" style={{ border: 'none', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--color-warning)', cursor: 'pointer' }} onClick={() => handleUpdateFollowUpStatus(f.id, 'Cancelled')}>✕ Cancel</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {activeFollowupTab === 'missed' && (
+              missedFollowups.length === 0 ? (
+                <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>No missed follow-ups.</div>
+              ) : (
+                <div className="table-container">
+                  <table className="data-table" style={{ fontSize: '0.8125rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Patient</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {missedFollowups.map(f => (
+                        <tr key={f.id}>
+                          <td style={{ fontWeight: 500, color: 'var(--color-danger)' }}>{f.followup_date}</td>
+                          <td style={{ fontWeight: 600 }}>
+                            <Link href={`/patients/${f.patient_id}`} style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>
+                              {f.patients?.name || 'N/A'}
+                            </Link>
+                          </td>
+                          <td>{f.followup_type}</td>
+                          <td>
+                            <span className="badge" style={{ background: 'var(--color-danger-light)', color: 'var(--color-danger)', border: 'none', fontWeight: 'bold' }}>
+                              {f.status}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button className="badge" style={{ border: 'none', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--color-success)', cursor: 'pointer' }} onClick={() => handleUpdateFollowUpStatus(f.id, 'Completed')}>✓ Complete</button>
+                              <a 
+                                href={`https://wa.me/${f.patients?.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${f.patients?.name || 'Patient'}, this is Victoria Dental Care. We noticed you missed your follow-up visit scheduled on ${f.followup_date}. Please contact us to reschedule your appointment.`)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="badge"
+                                style={{ display: 'inline-block', border: 'none', background: 'rgba(37, 211, 102, 0.15)', color: '#25d366', textDecoration: 'none', cursor: 'pointer' }}
+                              >
+                                💬 WhatsApp
+                              </a>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
 

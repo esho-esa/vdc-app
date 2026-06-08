@@ -31,6 +31,14 @@ export default function PatientProfile({ params }) {
   const [selectedTreatment, setSelectedTreatment] = useState(null);
   const [editTreatFormData, setEditTreatFormData] = useState({ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '', dentist: 'Dr. Anand', date: new Date().toISOString().split('T')[0] });
 
+  // Follow-up state variables
+  const [followupRequired, setFollowupRequired] = useState(false);
+  const [followupDate, setFollowupDate] = useState(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  const [followupType, setFollowupType] = useState('Routine Checkup');
+  const [followupNotes, setFollowupNotes] = useState('');
+  const [patientFollowups, setPatientFollowups] = useState([]);
+  const [followupsLoading, setFollowupsLoading] = useState(true);
+
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [filterStartDate, setFilterStartDate] = useState('');
@@ -128,7 +136,56 @@ export default function PatientProfile({ params }) {
       .catch(() => setLoading(false));
 
     fetchRecords();
+    fetchPatientFollowups();
   }, [id]);
+
+  function fetchPatientFollowups() {
+    setFollowupsLoading(true);
+    fetch(`/api/follow-ups?patientId=${id}`)
+      .then(res => res.json())
+      .then(d => {
+        if (!d.error) {
+          setPatientFollowups(d);
+        }
+        setFollowupsLoading(false);
+      })
+      .catch(() => setFollowupsLoading(false));
+  }
+
+  async function handleUpdateFollowupStatus(followupId, newStatus) {
+    try {
+      const res = await fetch(`/api/follow-ups/${followupId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        fetchPatientFollowups();
+      } else {
+        alert('Failed to update follow-up status');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error updating follow-up status');
+    }
+  }
+
+  async function handleDeleteFollowup(followupId) {
+    if (!confirm('Are you sure you want to cancel and delete this follow-up scheduled appointment?')) return;
+    try {
+      const res = await fetch(`/api/follow-ups/${followupId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        fetchPatientFollowups();
+      } else {
+        alert('Failed to delete follow-up');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error deleting follow-up');
+    }
+  }
 
   function fetchRecords() {
     setRecordsLoading(true);
@@ -366,10 +423,18 @@ export default function PatientProfile({ params }) {
         date: visitDate
       }));
 
+      const bodyPayload = {
+        treatments: payload,
+        followupRequired: followupRequired,
+        followupDate: followupRequired ? followupDate : null,
+        followupType: followupRequired ? followupType : null,
+        followupNotes: followupRequired ? followupNotes : null
+      };
+
       const res = await fetch(`/api/patients/${id}/treatments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(bodyPayload)
       });
       if (res.ok) {
         const newTreats = await res.json();
@@ -379,9 +444,14 @@ export default function PatientProfile({ params }) {
           treatments: [...treatsArray, ...(data.treatments || [])]
         });
         setShowTreatModal(false);
-        // Reset list and details
+        // Reset list, details, and follow-up states
         setTreatmentsList([{ description: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
         setVisitDate(new Date().toISOString().split('T')[0]);
+        setFollowupRequired(false);
+        setFollowupDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+        setFollowupType('Routine Checkup');
+        setFollowupNotes('');
+        fetchPatientFollowups(); // Refresh follow-ups list
       } else {
         alert('Failed to record treatments');
       }
@@ -842,7 +912,8 @@ export default function PatientProfile({ params }) {
           { id: 'treatments', label: 'Treatment History', icon: '🦷' },
           { id: 'billing', label: 'Billing', icon: '💰' },
           { id: 'prescriptions', label: 'Prescriptions', icon: '💊' },
-          { id: 'photos', label: 'Photos & X-Rays', icon: '📷' }
+          { id: 'photos', label: 'Photos & X-Rays', icon: '📷' },
+          { id: 'followups', label: 'Follow-Ups', icon: '🔁' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -1646,6 +1717,123 @@ export default function PatientProfile({ params }) {
         </div>
       )}
 
+      {/* Tab 6: Follow-Ups */}
+      {activeTab === 'followups' && (
+        <div className="stagger">
+          <div className="grid-2" style={{ gap: 'var(--space-lg)' }}>
+            {/* Upcoming Follow-Ups Panel */}
+            <div className="glass-card-flat">
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-accent)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📅 Upcoming Follow-Ups
+              </h3>
+              {followupsLoading ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>Loading follow-ups...</div>
+              ) : patientFollowups.filter(f => f.status === 'Scheduled').length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {patientFollowups.filter(f => f.status === 'Scheduled').map(f => (
+                    <div key={f.id} className="glass-card" style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', position: 'relative' }}>
+                      <div className="flex-between" style={{ marginBottom: '8px' }}>
+                        <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: 'var(--color-accent)', border: 'none', fontWeight: 'bold' }}>
+                          {f.followup_type}
+                        </span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--color-text-primary)' }}>
+                          {f.followup_date}
+                        </span>
+                      </div>
+                      {f.notes && (
+                        <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '12px', fontStyle: 'italic' }}>
+                          "{f.notes}"
+                        </p>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--color-border)', paddingTop: '10px' }}>
+                        <button 
+                          className="btn btn-sm" 
+                          style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '6px 12px', border: 'none', borderRadius: '6px', fontWeight: '600' }}
+                          onClick={() => handleUpdateFollowupStatus(f.id, 'Completed')}
+                        >
+                          ✓ Complete
+                        </button>
+                        <button 
+                          className="btn btn-sm" 
+                          style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', padding: '6px 12px', border: 'none', borderRadius: '6px', fontWeight: '600' }}
+                          onClick={() => handleUpdateFollowupStatus(f.id, 'Missed')}
+                        >
+                          ✕ Missed
+                        </button>
+                        <button 
+                          className="btn btn-sm btn-ghost" 
+                          style={{ padding: '6px 12px', color: 'var(--color-text-secondary)' }}
+                          onClick={() => handleDeleteFollowup(f.id)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-text-secondary)', border: '1px dashed var(--color-border)', borderRadius: '12px', background: 'rgba(255,255,255,0.01)' }}>
+                  No upcoming scheduled follow-ups.
+                </div>
+              )}
+            </div>
+
+            {/* Follow-Up History Log */}
+            <div className="glass-card-flat">
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📜 Follow-Up History
+              </h3>
+              {followupsLoading ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>Loading history...</div>
+              ) : patientFollowups.filter(f => f.status !== 'Scheduled').length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '450px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {patientFollowups.filter(f => f.status !== 'Scheduled').sort((a,b) => b.followup_date.localeCompare(a.followup_date)).map(f => {
+                    let statusColor = 'var(--color-text-secondary)';
+                    let statusBg = 'rgba(255,255,255,0.05)';
+                    if (f.status === 'Completed') {
+                      statusColor = '#10b981';
+                      statusBg = 'rgba(16, 185, 129, 0.15)';
+                    } else if (f.status === 'Missed') {
+                      statusColor = '#ef4444';
+                      statusBg = 'rgba(239, 68, 68, 0.15)';
+                    } else if (f.status === 'Cancelled') {
+                      statusColor = '#f59e0b';
+                      statusBg = 'rgba(245, 158, 11, 0.15)';
+                    }
+
+                    return (
+                      <div key={f.id} className="glass-card" style={{ padding: '12px 16px', borderRadius: '10px', border: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{f.followup_type}</span>
+                            <span className="badge" style={{ background: statusBg, color: statusColor, border: 'none', fontSize: '0.65rem', padding: '2px 6px', fontWeight: 'bold' }}>
+                              {f.status}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>Date: {f.followup_date}</span>
+                          {f.notes && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>Notes: {f.notes}</div>}
+                        </div>
+                        <button 
+                          className="badge" 
+                          style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--color-text-secondary)', border: 'none', cursor: 'pointer' }}
+                          onClick={() => handleUpdateFollowupStatus(f.id, 'Scheduled')}
+                        >
+                          Re-open
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-text-secondary)', border: '1px dashed var(--color-border)', borderRadius: '12px', background: 'rgba(255,255,255,0.01)' }}>
+                  No historical follow-up logs.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Profile Modal */}
       <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Edit Patient Profile" footer={
         <>
@@ -1822,6 +2010,61 @@ export default function PatientProfile({ params }) {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddTreatmentRow}>+ Add Another Treatment</button>
+        </div>
+
+        {/* Follow-up Required Section */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', marginTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: followupRequired ? '12px' : '0' }}>
+            <input 
+              type="checkbox" 
+              id="followupRequired" 
+              checked={followupRequired} 
+              onChange={e => setFollowupRequired(e.target.checked)} 
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <label htmlFor="followupRequired" style={{ fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', margin: 0 }}>Follow-up Required?</label>
+          </div>
+
+          {followupRequired && (
+            <div className="stagger">
+              <div className="grid-2" style={{ gap: '12px', marginBottom: '12px' }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.75rem' }}>Follow-up Date *</label>
+                  <input 
+                    type="date" 
+                    className="input-field" 
+                    value={followupDate} 
+                    onChange={e => setFollowupDate(e.target.value)} 
+                    required 
+                  />
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.75rem' }}>Follow-up Type *</label>
+                  <select 
+                    className="input-field" 
+                    value={followupType} 
+                    onChange={e => setFollowupType(e.target.value)}
+                  >
+                    <option value="Routine Checkup">Routine Checkup</option>
+                    <option value="Suture Removal">Suture Removal</option>
+                    <option value="Post-Op Review">Post-Op Review</option>
+                    <option value="Treatment Continuation">Treatment Continuation</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: '0.75rem' }}>Follow-up Notes</label>
+                <textarea 
+                  className="input-field" 
+                  placeholder="Enter specific instructions or notes for the follow-up..." 
+                  rows={2} 
+                  value={followupNotes} 
+                  onChange={e => setFollowupNotes(e.target.value)} 
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', marginTop: '16px' }}>

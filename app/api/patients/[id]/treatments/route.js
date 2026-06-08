@@ -72,6 +72,30 @@ export async function POST(request, { params }) {
 
     if (treatError) throw treatError;
 
+    // Optional follow-up insertion
+    if (!Array.isArray(body) && body.followupRequired) {
+      const { followupDate, followupType, followupNotes } = body;
+      if (followupDate && followupType) {
+        const followUpId = `fol-${uuidv4().substring(0, 8)}`;
+        const { error: followUpError } = await supabase
+          .from('follow_ups')
+          .insert([
+            {
+              id: followUpId,
+              patient_id: id,
+              treatment_id: inserted[0]?.id || null,
+              followup_date: followupDate,
+              followup_type: followupType,
+              notes: followupNotes || '',
+              status: 'Scheduled'
+            }
+          ]);
+        if (followUpError) {
+          console.error('[Treatments:CreateFollowUp] Error creating follow-up:', followUpError);
+        }
+      }
+    }
+
     // Consolidate activity log text
     const descSummary = treatments.map(t => t.description || t.name).join(', ');
     const totalCostSum = recordsToInsert.reduce((sum, r) => sum + r.cost, 0);
@@ -86,7 +110,7 @@ export async function POST(request, { params }) {
       }
     ]);
 
-    return NextResponse.json(Array.isArray(body) ? inserted : inserted[0]);
+    return NextResponse.json(Array.isArray(body) ? inserted : (body.treatments ? inserted : inserted[0]));
   } catch (error) {
     console.error('[Treatments:Create] Error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
