@@ -16,7 +16,7 @@ export async function GET(request) {
     const supabase = getDB();
     const { data: pos, error } = await supabase
       .from('purchase_orders')
-      .select('*, suppliers(name)')
+      .select('*, suppliers(supplier_name)')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -54,13 +54,12 @@ export async function POST(request) {
         {
           id,
           supplier_id: supplierId,
-          order_date: orderDate,
           status: status || 'Draft',
           total_amount: parseFloat(totalAmount) || 0,
           items: items // Store as JSONB
         }
       ])
-      .select('*, suppliers(name)')
+      .select('*, suppliers(supplier_name)')
       .single();
 
     if (insertErr) throw insertErr;

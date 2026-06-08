@@ -44,7 +44,7 @@ export async function PUT(request, { params }) {
       .from('purchase_orders')
       .update(updatePayload)
       .eq('id', id)
-      .select('*, suppliers(name)')
+      .select('*, suppliers(supplier_name)')
       .single();
 
     if (updateErr) throw updateErr;
@@ -59,10 +59,10 @@ export async function PUT(request, { params }) {
         if (itemId && qtyToReceive > 0) {
           // Fetch existing item stock
           const { data: invItem, error: invErr } = await supabase
-            .from('inventory_items')
-            .select('current_stock, item_name')
-            .eq('id', itemId)
-            .single();
+             .from('inventory_items')
+             .select('current_stock, item_name')
+             .eq('id', itemId)
+             .single();
 
           if (!invErr && invItem) {
             const newStock = invItem.current_stock + qtyToReceive;
@@ -74,13 +74,14 @@ export async function PUT(request, { params }) {
               .eq('id', itemId);
 
             // Log Transaction
-            await supabase.from('inventory_transactions').insert([
+            await supabase.from('stock_transactions').insert([
               {
-                id: `itx-${uuidv4().substring(0, 8)}`,
-                item_id: itemId,
-                transaction_type: 'Purchase',
+                id: `stx-${uuidv4().substring(0, 8)}`,
+                inventory_item_id: itemId,
+                transaction_type: 'IN',
                 quantity: qtyToReceive,
-                notes: `Received from Purchase Order ${id}`
+                reason: `Received from Purchase Order ${id}`,
+                staff_id: user.id || null
               }
             ]);
           }

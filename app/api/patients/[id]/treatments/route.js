@@ -72,57 +72,93 @@ export async function POST(request, { params }) {
 
     if (treatError) throw treatError;
 
-    // Process material consumption deductions (optional)
+    // Fetch all inventory items once to do local keyword matching
+    const { data: allItems } = await supabase.from('inventory_items').select('*');
+    const findItemByKeyword = (keyword) => {
+      return (allItems || []).find(it => it.item_name.toLowerCase().includes(keyword.toLowerCase()));
+    };
+
+    // Process material consumption deductions (both automatic keyword-based and manual)
     for (let i = 0; i < treatments.length; i++) {
       const item = treatments[i];
       const insertedTreatment = inserted[i];
-      const materials = item.materials || [];
-      if (Array.isArray(materials) && materials.length > 0) {
-        for (const mat of materials) {
+      const descText = (item.description || item.name || '').toLowerCase();
+      const materialsToDeduct = [];
+
+      // 1. Automatic Keyword-based matching
+      if (descText.includes('extraction') || descText.includes('extract')) {
+        const mat = findItemByKeyword('anesthetic');
+        if (mat) materialsToDeduct.push({ item: mat, qty: 1 });
+      }
+      if (descText.includes('rct') || descText.includes('root canal')) {
+        const matGp = findItemByKeyword('gp point') || findItemByKeyword('gp');
+        const matFile = findItemByKeyword('file');
+        const matSealer = findItemByKeyword('sealer');
+        if (matGp) materialsToDeduct.push({ item: matGp, qty: 1 });
+        if (matFile) materialsToDeduct.push({ item: matFile, qty: 1 });
+        if (matSealer) materialsToDeduct.push({ item: matSealer, qty: 1 });
+      }
+      if (descText.includes('crown')) {
+        const matCrown = findItemByKeyword('crown material') || findItemByKeyword('crown');
+        if (matCrown) materialsToDeduct.push({ item: matCrown, qty: 1 });
+      }
+      if (descText.includes('x-ray') || descText.includes('xray') || descText.includes('x ray')) {
+        const matXray = findItemByKeyword('x-ray material') || findItemByKeyword('xray') || findItemByKeyword('x-ray');
+        if (matXray) materialsToDeduct.push({ item: matXray, qty: 1 });
+      }
+
+      // 2. Manual materials passed from request (if any)
+      const manualMaterials = item.materials || [];
+      if (Array.isArray(manualMaterials)) {
+        for (const mat of manualMaterials) {
           const { itemId, quantity } = mat;
           const qty = parseInt(quantity) || 0;
           if (itemId && qty > 0) {
-            // Fetch item to verify stock and name
-            const { data: invItem } = await supabase
-              .from('inventory_items')
-              .select('current_stock, item_name, reorder_level')
-              .eq('id', itemId)
-              .single();
-            
-            if (invItem) {
-              const newStock = Math.max(0, invItem.current_stock - qty);
-              
-              // Decrement Stock
-              await supabase
-                .from('inventory_items')
-                .update({ current_stock: newStock })
-                .eq('id', itemId);
-
-              // Log Transaction
-              await supabase.from('inventory_transactions').insert([
-                {
-                  id: `itx-${uuidv4().substring(0, 8)}`,
-                  item_id: itemId,
-                  transaction_type: 'Usage',
-                  quantity: -qty,
-                  notes: `Deducted for treatment "${item.description || item.name}" (Visit ref: ${visitId})`
-                }
-              ]);
-
-              // Check if stock is now below reorder level, trigger alert
-              if (newStock <= invItem.reorder_level) {
-                await supabase.from('notifications').insert([
-                  {
-                    id: `not-${uuidv4().substring(0, 8)}`,
-                    type: 'inventory',
-                    title: 'Low Stock Alert',
-                    message: `Stock for ${invItem.item_name} has dropped below the reorder level (${newStock} remaining).`,
-                    read: 0
-                  }
-                ]);
-              }
+            const matchedItem = (allItems || []).find(it => it.id === itemId);
+            if (matchedItem) {
+              materialsToDeduct.push({ item: matchedItem, qty });
             }
           }
+        }
+      }
+
+      // Deduct materials and log transactions
+      for (const { item: invItem, qty } of materialsToDeduct) {
+        const newStock = Math.max(0, invItem.current_stock - qty);
+        
+        // Decrement Stock
+        await supabase
+          .from('inventory_items')
+          .update({ current_stock: newStock })
+          .eq('id', invItem.id);
+
+        // Update local reference stock in case subsequent treatments use the same item
+        invItem.current_stock = newStock;
+
+        // Log Transaction to stock_transactions
+        await supabase.from('stock_transactions').insert([
+          {
+            id: `stx-${uuidv4().substring(0, 8)}`,
+            inventory_item_id: invItem.id,
+            transaction_type: 'OUT',
+            quantity: -qty,
+            reason: `Deducted for treatment "${item.description || item.name}" (Visit ref: ${visitId})`,
+            treatment_id: insertedTreatment?.id || null,
+            staff_id: user?.id || null
+          }
+        ]);
+
+        // Check if stock is now below minimum stock, trigger alert
+        if (newStock <= invItem.minimum_stock) {
+          await supabase.from('notifications').insert([
+            {
+              id: `not-${uuidv4().substring(0, 8)}`,
+              type: 'inventory',
+              title: 'Low Stock Alert',
+              message: `Stock for ${invItem.item_name} has dropped below the minimum limit (${newStock} remaining).`,
+              read: 0
+            }
+          ]);
         }
       }
     }

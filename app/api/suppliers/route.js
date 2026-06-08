@@ -17,7 +17,7 @@ export async function GET(request) {
     const { data: suppliers, error } = await supabase
       .from('suppliers')
       .select('*')
-      .order('name', { ascending: true });
+      .order('supplier_name', { ascending: true });
 
     if (error) throw error;
 
@@ -39,9 +39,9 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { name, contact, email, address } = body;
+    const { supplier_name, phone, email, address } = body;
 
-    if (!name) {
+    if (!supplier_name) {
       return NextResponse.json({ error: 'Supplier Name is required' }, { status: 400 });
     }
 
@@ -53,8 +53,8 @@ export async function POST(request) {
       .insert([
         {
           id,
-          name,
-          contact: contact || '',
+          supplier_name,
+          phone: phone || '',
           email: email || '',
           address: address || ''
         }
@@ -69,7 +69,7 @@ export async function POST(request) {
     await supabase.from('activity_log').insert([
       {
         id: `act-${uuidv4().substring(0, 8)}`,
-        text: `New supplier added: ${name}`,
+        text: `New supplier added: ${supplier_name}`,
         subtext: `Created by ${username}`,
         color: 'blue'
       }

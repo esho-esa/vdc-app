@@ -39,11 +39,11 @@ export async function GET(request) {
     const secondaryColor = '#6e6e73';
     const textColor = '#1d1d1f';
 
-    // Fetch necessary records
-    const { data: items } = await supabase.from('inventory_items').select('*, suppliers(name)');
-    const { data: transactions } = await supabase.from('inventory_transactions').select('*, inventory_items(item_name, unit, category)').order('created_at', { ascending: false });
-    const { data: purchaseOrders } = await supabase.from('purchase_orders').select('*, suppliers(name)');
-    const { data: suppliers } = await supabase.from('suppliers').select('id, name');
+    // Fetch necessary records from the new schemas
+    const { data: items } = await supabase.from('inventory_items').select('*, suppliers(supplier_name)');
+    const { data: transactions } = await supabase.from('stock_transactions').select('*, inventory_items(item_name, unit, category)').order('created_at', { ascending: false });
+    const { data: purchaseOrders } = await supabase.from('purchase_orders').select('*, suppliers(supplier_name)');
+    const { data: suppliers } = await supabase.from('suppliers').select('id, supplier_name');
 
     // Create PDF buffer on-the-fly
     const pdfBuffer = await new Promise((resolve, reject) => {
@@ -99,14 +99,13 @@ export async function GET(request) {
         if (reportType === 'Stock') {
           const drawHeader = () => {
             doc.font('Helvetica-Bold').fontSize(8.5).fillColor(textColor);
-            doc.text('ITEM NAME', 50, currentY, { width: 150 });
-            doc.text('CATEGORY', 210, currentY, { width: 110 });
-            doc.text('UNIT', 330, currentY, { width: 50 });
-            doc.text('STOCK', 390, currentY, { width: 60, align: 'right' });
-            doc.text('MIN', 460, currentY, { width: 50, align: 'right' });
-            doc.text('REORDER', 520, currentY, { width: 60, align: 'right' });
-            doc.text('PURCHASE (₹)', 590, currentY, { width: 90, align: 'right' });
-            doc.text('SELLING (₹)', 690, currentY, { width: 90, align: 'right' });
+            doc.text('ITEM NAME', 50, currentY, { width: 180 });
+            doc.text('CATEGORY', 240, currentY, { width: 110 });
+            doc.text('UNIT', 360, currentY, { width: 50 });
+            doc.text('STOCK', 420, currentY, { width: 60, align: 'right' });
+            doc.text('MIN LIMIT', 490, currentY, { width: 60, align: 'right' });
+            doc.text('PURCHASE (₹)', 560, currentY, { width: 90, align: 'right' });
+            doc.text('SELLING (₹)', 660, currentY, { width: 90, align: 'right' });
 
             currentY += 14;
             doc.save();
@@ -132,21 +131,20 @@ export async function GET(request) {
             }
 
             doc.font('Helvetica').fontSize(8.5).fillColor(textColor);
-            doc.text(item.item_name, 50, currentY, { width: 150 });
-            doc.text(item.category, 210, currentY, { width: 110 });
-            doc.text(item.unit, 330, currentY, { width: 50 });
+            doc.text(item.item_name, 50, currentY, { width: 180 });
+            doc.text(item.category, 240, currentY, { width: 110 });
+            doc.text(item.unit, 360, currentY, { width: 50 });
 
             // Highlight low stock in red
-            const isLow = item.current_stock <= item.reorder_level;
+            const isLow = item.current_stock <= item.minimum_stock;
             doc.font(isLow ? 'Helvetica-Bold' : 'Helvetica')
                .fillColor(isLow ? '#ff3b30' : textColor)
-               .text(item.current_stock.toString(), 390, currentY, { width: 60, align: 'right' });
+               .text(item.current_stock.toString(), 420, currentY, { width: 60, align: 'right' });
 
             doc.font('Helvetica').fillColor(textColor);
-            doc.text(item.minimum_stock.toString(), 460, currentY, { width: 50, align: 'right' });
-            doc.text(item.reorder_level.toString(), 520, currentY, { width: 60, align: 'right' });
-            doc.text(parseFloat(item.purchase_price).toFixed(2), 590, currentY, { width: 90, align: 'right' });
-            doc.text(item.selling_price ? parseFloat(item.selling_price).toFixed(2) : '-', 690, currentY, { width: 90, align: 'right' });
+            doc.text(item.minimum_stock.toString(), 490, currentY, { width: 60, align: 'right' });
+            doc.text(parseFloat(item.purchase_price).toFixed(2), 560, currentY, { width: 90, align: 'right' });
+            doc.text(item.selling_price ? parseFloat(item.selling_price).toFixed(2) : '-', 660, currentY, { width: 90, align: 'right' });
 
             currentY += 15;
             rowIndex++;
@@ -163,7 +161,7 @@ export async function GET(request) {
             doc.text('ITEM NAME', 150, currentY, { width: 200 });
             doc.text('QUANTITY', 360, currentY, { width: 80, align: 'right' });
             doc.text('UNIT', 450, currentY, { width: 60 });
-            doc.text('NOTES / TRANSACTION TYPE', 520, currentY, { width: 270 });
+            doc.text('REASON / NOTES', 520, currentY, { width: 270 });
 
             currentY += 14;
             doc.save();
@@ -174,7 +172,7 @@ export async function GET(request) {
 
           drawHeader();
 
-          const purchaseTx = (transactions || []).filter(tx => tx.transaction_type === 'Purchase');
+          const purchaseTx = (transactions || []).filter(tx => tx.transaction_type === 'IN');
           let rowIndex = 0;
           purchaseTx.forEach(tx => {
             if (currentY + 18 > pageBottom) {
@@ -194,7 +192,7 @@ export async function GET(request) {
             doc.text(tx.inventory_items?.item_name || 'Deleted Item', 150, currentY, { width: 200 });
             doc.text(`+${tx.quantity}`, 360, currentY, { width: 80, align: 'right', color: '#34c759' });
             doc.text(tx.inventory_items?.unit || '-', 450, currentY, { width: 60 });
-            doc.text(tx.notes || 'Purchased stock receipt', 520, currentY, { width: 270 });
+            doc.text(tx.reason || 'Purchased stock receipt', 520, currentY, { width: 270 });
 
             currentY += 15;
             rowIndex++;
@@ -211,7 +209,7 @@ export async function GET(request) {
             doc.text('ITEM NAME', 150, currentY, { width: 200 });
             doc.text('QUANTITY DEDUCTED', 360, currentY, { width: 120, align: 'right' });
             doc.text('UNIT', 490, currentY, { width: 60 });
-            doc.text('TREATMENT REFERENCE / NOTES', 560, currentY, { width: 230 });
+            doc.text('TREATMENT REFERENCE / REASON', 560, currentY, { width: 230 });
 
             currentY += 14;
             doc.save();
@@ -222,7 +220,7 @@ export async function GET(request) {
 
           drawHeader();
 
-          const consumptionTx = (transactions || []).filter(tx => tx.transaction_type === 'Usage');
+          const consumptionTx = (transactions || []).filter(tx => tx.transaction_type === 'OUT');
           let rowIndex = 0;
           consumptionTx.forEach(tx => {
             if (currentY + 18 > pageBottom) {
@@ -242,7 +240,7 @@ export async function GET(request) {
             doc.text(tx.inventory_items?.item_name || 'Deleted Item', 150, currentY, { width: 200 });
             doc.text(`${tx.quantity}`, 360, currentY, { width: 120, align: 'right', color: '#ff3b30' });
             doc.text(tx.inventory_items?.unit || '-', 490, currentY, { width: 60 });
-            doc.text(tx.notes || 'Procedure consumption', 560, currentY, { width: 230 });
+            doc.text(tx.reason || 'Procedure consumption', 560, currentY, { width: 230 });
 
             currentY += 15;
             rowIndex++;
@@ -272,7 +270,7 @@ export async function GET(request) {
           // Compile values
           const supplierSpends = {};
           (suppliers || []).forEach(s => {
-            supplierSpends[s.id] = { name: s.name, totalValue: 0, poCount: 0, itemCount: 0 };
+            supplierSpends[s.id] = { name: s.supplier_name, totalValue: 0, poCount: 0, itemCount: 0 };
           });
           (items || []).forEach(i => {
             if (i.supplier_id && supplierSpends[i.supplier_id]) supplierSpends[i.supplier_id].itemCount++;

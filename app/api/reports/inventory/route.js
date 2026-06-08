@@ -21,12 +21,12 @@ export async function GET(request) {
     // 1. Fetch all items
     const { data: items, error: itemsErr } = await supabase
       .from('inventory_items')
-      .select('*, suppliers(name)');
+      .select('*, suppliers(supplier_name)');
     if (itemsErr) throw itemsErr;
 
     // 2. Fetch all transactions within date range or overall
     let txQuery = supabase
-      .from('inventory_transactions')
+      .from('stock_transactions')
       .select('*, inventory_items(item_name, unit, category)');
     if (startDate) txQuery = txQuery.gte('created_at', startDate);
     if (endDate) txQuery = txQuery.lte('created_at', endDate);
@@ -37,7 +37,7 @@ export async function GET(request) {
     // 3. Fetch purchase orders to compile Supplier and PO spends
     const { data: purchaseOrders, error: poErr } = await supabase
       .from('purchase_orders')
-      .select('*, suppliers(name)');
+      .select('*, suppliers(supplier_name)');
     if (poErr) throw poErr;
 
     // --- Metric Calculations ---
@@ -56,7 +56,7 @@ export async function GET(request) {
 
       if (item.current_stock <= 0) {
         outOfStockItems.push(item);
-      } else if (item.current_stock <= item.reorder_level) {
+      } else if (item.current_stock <= item.minimum_stock) {
         lowStockItems.push(item);
       }
 
@@ -69,20 +69,20 @@ export async function GET(request) {
     });
 
     // Consumption Report: Filter usage transactions
-    const consumptionList = (transactions || []).filter(tx => tx.transaction_type === 'Usage');
+    const consumptionList = (transactions || []).filter(tx => tx.transaction_type === 'OUT');
     
     // Purchase Report: Filter purchase transactions
-    const purchaseList = (transactions || []).filter(tx => tx.transaction_type === 'Purchase');
+    const purchaseList = (transactions || []).filter(tx => tx.transaction_type === 'IN');
 
     // Supplier Report: Spend by supplier from POs
     const supplierSpends = {};
-    const { data: suppliers, error: supErr } = await supabase.from('suppliers').select('id, name');
+    const { data: suppliers, error: supErr } = await supabase.from('suppliers').select('id, supplier_name');
     if (supErr) throw supErr;
 
     (suppliers || []).forEach(s => {
       supplierSpends[s.id] = {
         id: s.id,
-        name: s.name,
+        name: s.supplier_name,
         totalPOValue: 0,
         poCount: 0,
         itemCount: 0

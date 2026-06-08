@@ -36,6 +36,19 @@ export async function GET(request) {
       supabase.from('expense_categories').select('*')
     ]);
 
+    let stockTxs = [];
+    try {
+      const { data, error: stockErr } = await supabase
+        .from('stock_transactions')
+        .select('quantity, created_at, inventory_items(purchase_price)')
+        .eq('transaction_type', 'OUT');
+      if (!stockErr && data) {
+        stockTxs = data;
+      }
+    } catch (e) {
+      console.warn('[Profit Stats API] Failed to query stock_transactions:', e.message);
+    }
+
     if (rxError) throw rxError;
     if (txError) throw txError;
     
@@ -114,9 +127,36 @@ export async function GET(request) {
       }
     });
 
+    // --- MATERIAL COST CALCULATIONS ---
+    let totalMaterialCost = 0;
+    let currentMonthMaterialCost = 0;
+    let prevMonthMaterialCost = 0;
+    const monthlyMaterialCostBuckets = {};
+
+    stockTxs.forEach(tx => {
+      const qty = Math.abs(tx.quantity) || 0;
+      const price = parseFloat(tx.inventory_items?.purchase_price) || 0;
+      const cost = qty * price;
+      
+      totalMaterialCost += cost;
+
+      const dateStr = tx.created_at || '';
+      const monthKey = dateStr ? dateStr.substring(0, 7) : 'unknown';
+      if (monthKey !== 'unknown') {
+        monthlyMaterialCostBuckets[monthKey] = (monthlyMaterialCostBuckets[monthKey] || 0) + cost;
+      }
+
+      if (dateStr && dateStr.substring(0, 7) === currentMonth) {
+        currentMonthMaterialCost += cost;
+      }
+      if (dateStr && dateStr.substring(0, 7) === prevMonth) {
+        prevMonthMaterialCost += cost;
+      }
+    });
+
     // --- CORE profit KPI METRICS ---
     // We use Collected cash revenue as the default standard for Profit (real cash-flow)
-    const netProfit = totalCollected - totalExpenses;
+    const netProfit = totalCollected - totalExpenses - totalMaterialCost;
     const profitMargin = totalCollected > 0 ? (netProfit / totalCollected) * 100 : 0;
     const outstandingReceivables = Math.max(0, totalBilled - totalCollected);
 
@@ -137,12 +177,14 @@ export async function GET(request) {
       const label = new Date(key + '-01').toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
       const revenue = monthlyRevenueBuckets[key] || 0;
       const expenses = monthlyExpensesBuckets[key] || 0;
+      const materialCost = monthlyMaterialCostBuckets[key] || 0;
       return {
         month: key,
         label,
         revenue,
         expenses,
-        profit: revenue - expenses
+        materialCost,
+        profit: revenue - expenses - materialCost
       };
     });
 
@@ -235,19 +277,21 @@ export async function GET(request) {
       // Aggregates
       totalRevenue: totalCollected, // cash flow focus
       totalExpenses,
+      totalMaterialCost,
       netProfit,
       profitMargin,
       outstandingReceivables,
       
       // Accrual alternatives
       accrualRevenue: totalBilled,
-      accrualNetProfit,
+      accrualNetProfit: totalBilled - totalExpenses - totalMaterialCost,
       accrualProfitMargin,
 
       // Current month details
       currentMonthCollected,
       currentMonthExpenses,
-      currentMonthNetProfit,
+      currentMonthMaterialCost,
+      currentMonthNetProfit: currentMonthCollected - currentMonthExpenses - currentMonthMaterialCost,
 
       // Charts
       revenueVsExpensesChart,

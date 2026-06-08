@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import Modal from '../../components/Modal';
 
 export default function InventoryDashboard() {
@@ -26,13 +25,28 @@ export default function InventoryDashboard() {
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [selectedPO, setSelectedPO] = useState(null);
 
-  // Form states
-  const [itemFormData, setItemFormData] = useState({ itemName: '', category: 'Clinical Supplies', unit: 'Pcs', currentStock: '0', minimumStock: '0', reorderLevel: '0', purchasePrice: '0', sellingPrice: '0', supplierId: '', expiryDate: '' });
-  const [supplierFormData, setSupplierFormData] = useState({ name: '', contact: '', email: '', address: '' });
+  // Form states matching new schema
+  const [itemFormData, setItemFormData] = useState({ 
+    itemName: '', 
+    category: 'Dental Material', 
+    sku: '', 
+    unit: 'Pcs', 
+    currentStock: '0', 
+    minimumStock: '0', 
+    purchasePrice: '0', 
+    sellingPrice: '0', 
+    supplierId: '', 
+    expiryDate: '' 
+  });
+  const [supplierFormData, setSupplierFormData] = useState({ 
+    supplier_name: '', 
+    phone: '', 
+    email: '', 
+    address: '' 
+  });
   
   // PO Form states
   const [poSupplierId, setPOSupplierId] = useState('');
-  const [poOrderDate, setPOOrderDate] = useState(new Date().toISOString().split('T')[0]);
   const [poItemsList, setPOItemsList] = useState([{ itemId: '', quantity: '1', unitPrice: '0' }]);
   const [poStatus, setPOStatus] = useState('Draft');
 
@@ -43,8 +57,6 @@ export default function InventoryDashboard() {
   
   // Reports page states
   const [reportType, setReportType] = useState('Stock'); // 'Stock', 'Purchase', 'Consumption', 'Supplier'
-  const [reportStartDate, setReportStartDate] = useState('');
-  const [reportEndDate, setReportEndDate] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -82,7 +94,7 @@ export default function InventoryDashboard() {
   // --- Supplier handlers ---
   async function handleAddSupplier(e) {
     e.preventDefault();
-    if (!supplierFormData.name) return;
+    if (!supplierFormData.supplier_name) return;
     try {
       const res = await fetch('/api/suppliers', {
         method: 'POST',
@@ -91,7 +103,7 @@ export default function InventoryDashboard() {
       });
       if (res.ok) {
         setShowSupplierModal(false);
-        setSupplierFormData({ name: '', contact: '', email: '', address: '' });
+        setSupplierFormData({ supplier_name: '', phone: '', email: '', address: '' });
         fetchData();
       } else {
         alert('Failed to register supplier');
@@ -113,7 +125,7 @@ export default function InventoryDashboard() {
       if (res.ok) {
         setShowEditSupplierModal(false);
         setSelectedSupplier(null);
-        setSupplierFormData({ name: '', contact: '', email: '', address: '' });
+        setSupplierFormData({ supplier_name: '', phone: '', email: '', address: '' });
         fetchData();
       } else {
         alert('Failed to update supplier details');
@@ -149,7 +161,7 @@ export default function InventoryDashboard() {
       });
       if (res.ok) {
         setShowItemModal(false);
-        setItemFormData({ itemName: '', category: 'Clinical Supplies', unit: 'Pcs', currentStock: '0', minimumStock: '0', reorderLevel: '0', purchasePrice: '0', sellingPrice: '0', supplierId: '', expiryDate: '' });
+        setItemFormData({ itemName: '', category: 'Dental Material', sku: '', unit: 'Pcs', currentStock: '0', minimumStock: '0', purchasePrice: '0', sellingPrice: '0', supplierId: '', expiryDate: '' });
         fetchData();
       } else {
         alert('Failed to add inventory item');
@@ -171,7 +183,7 @@ export default function InventoryDashboard() {
       if (res.ok) {
         setShowEditItemModal(false);
         setSelectedItem(null);
-        setItemFormData({ itemName: '', category: 'Clinical Supplies', unit: 'Pcs', currentStock: '0', minimumStock: '0', reorderLevel: '0', purchasePrice: '0', sellingPrice: '0', supplierId: '', expiryDate: '' });
+        setItemFormData({ itemName: '', category: 'Dental Material', sku: '', unit: 'Pcs', currentStock: '0', minimumStock: '0', purchasePrice: '0', sellingPrice: '0', supplierId: '', expiryDate: '' });
         fetchData();
       } else {
         alert('Failed to update inventory item');
@@ -227,14 +239,12 @@ export default function InventoryDashboard() {
     const newList = [...poItemsList];
     newList[idx][field] = val;
 
-    // Auto populate unit price if item is selected
     if (field === 'itemId') {
       const match = items.find(i => i.id === val);
       if (match) {
         newList[idx].unitPrice = match.purchase_price.toString();
       }
     }
-
     setPOItemsList(newList);
   }
 
@@ -246,7 +256,6 @@ export default function InventoryDashboard() {
     }
 
     const totalPOAmount = poItemsList.reduce((sum, item) => {
-      const match = items.find(i => i.id === item.itemId);
       const qty = parseInt(item.quantity) || 0;
       const price = parseFloat(item.unitPrice) || 0;
       return sum + (qty * price);
@@ -268,7 +277,7 @@ export default function InventoryDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           supplierId: poSupplierId,
-          orderDate: poOrderDate,
+          orderDate: new Date().toISOString().split('T')[0],
           status: poStatus,
           totalAmount: totalPOAmount,
           items: poItemsPayload
@@ -288,7 +297,7 @@ export default function InventoryDashboard() {
   }
 
   async function handleReceivePO(poId) {
-    if (!confirm('Are you sure you want to receive this stock? This will automatically increment stock levels for all items.')) return;
+    if (!confirm('Are you sure you want to receive this stock? This will automatically increment stock levels.')) return;
     try {
       const res = await fetch(`/api/purchase-orders/${poId}`, {
         method: 'PUT',
@@ -335,38 +344,38 @@ export default function InventoryDashboard() {
 
     if (reportType === 'Stock') {
       title = 'Stock_Report';
-      headers = ['Item Name', 'Category', 'Unit', 'Current Stock', 'Minimum Stock', 'Reorder Level', 'Purchase Price (INR)', 'Selling Price (INR)', 'Expiry Date', 'Supplier'];
+      headers = ['Item Name', 'Category', 'SKU', 'Unit', 'Current Stock', 'Minimum Stock', 'Purchase Price (INR)', 'Selling Price (INR)', 'Expiry Date', 'Supplier'];
       rows = (reportsData.stockList || []).map(item => [
         item.item_name,
         item.category,
+        item.sku || '',
         item.unit,
         item.current_stock.toString(),
         item.minimum_stock.toString(),
-        item.reorder_level.toString(),
         item.purchase_price.toString(),
-        item.selling_price ? item.selling_price.toString() : 'N/A',
+        item.selling_price ? item.selling_price.toString() : '0',
         item.expiry_date || 'N/A',
-        item.suppliers?.name || 'N/A'
+        item.suppliers?.supplier_name || 'N/A'
       ]);
     } else if (reportType === 'Purchase') {
       title = 'Purchase_Report';
-      headers = ['Date', 'Item Name', 'Quantity Received', 'Unit', 'Notes'];
+      headers = ['Date', 'Item Name', 'Quantity Received', 'Unit', 'Reason'];
       rows = (reportsData.purchaseList || []).map(tx => [
         tx.created_at.split('T')[0],
         tx.inventory_items?.item_name || 'N/A',
         tx.quantity.toString(),
         tx.inventory_items?.unit || '-',
-        tx.notes || ''
+        tx.reason || ''
       ]);
     } else if (reportType === 'Consumption') {
       title = 'Consumption_Report';
-      headers = ['Date', 'Item Name', 'Quantity Deducted', 'Unit', 'Procedure Reference / Notes'];
+      headers = ['Date', 'Item Name', 'Quantity Deducted', 'Unit', 'Treatment / Reason'];
       rows = (reportsData.consumptionList || []).map(tx => [
         tx.created_at.split('T')[0],
         tx.inventory_items?.item_name || 'N/A',
         Math.abs(tx.quantity).toString(),
         tx.inventory_items?.unit || '-',
-        tx.notes || ''
+        tx.reason || ''
       ]);
     } else if (reportType === 'Supplier') {
       title = 'Supplier_Report';
@@ -397,17 +406,18 @@ export default function InventoryDashboard() {
   // --- Filtering client-side ---
   const filteredItems = items.filter(item => {
     const matchesSearch = item.item_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase())) ||
                           item.category.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesCategory = categoryFilter ? item.category === categoryFilter : true;
     
     let matchesStock = true;
     if (stockLevelFilter === 'low') {
-      matchesStock = item.current_stock <= item.reorder_level && item.current_stock > 0;
+      matchesStock = item.current_stock <= item.minimum_stock && item.current_stock > 0;
     } else if (stockLevelFilter === 'out') {
       matchesStock = item.current_stock <= 0;
     } else if (stockLevelFilter === 'normal') {
-      matchesStock = item.current_stock > item.reorder_level;
+      matchesStock = item.current_stock > item.minimum_stock;
     }
 
     return matchesSearch && matchesCategory && matchesStock;
@@ -426,7 +436,7 @@ export default function InventoryDashboard() {
         <div style={{ display: 'flex', gap: '8px' }}>
           {activeTab === 'stock' && (
             <button className="btn btn-primary btn-sm" onClick={() => {
-              setItemFormData({ itemName: '', category: 'Clinical Supplies', unit: 'Pcs', currentStock: '0', minimumStock: '0', reorderLevel: '0', purchasePrice: '0', sellingPrice: '0', supplierId: '', expiryDate: '' });
+              setItemFormData({ itemName: '', category: 'Dental Material', sku: '', unit: 'Pcs', currentStock: '0', minimumStock: '0', purchasePrice: '0', sellingPrice: '0', supplierId: '', expiryDate: '' });
               setShowItemModal(true);
             }}>
               + Add Inventory Item
@@ -434,7 +444,7 @@ export default function InventoryDashboard() {
           )}
           {activeTab === 'suppliers' && (
             <button className="btn btn-primary btn-sm" onClick={() => {
-              setSupplierFormData({ name: '', contact: '', email: '', address: '' });
+              setSupplierFormData({ supplier_name: '', phone: '', email: '', address: '' });
               setShowSupplierModal(true);
             }}>
               + Register Supplier
@@ -492,8 +502,8 @@ export default function InventoryDashboard() {
         {[
           { id: 'stock', label: 'Stock Overview', icon: '📋' },
           { id: 'suppliers', label: 'Suppliers Directory', icon: '🏢' },
-          { id: 'po', label: 'Purchase Orders', icon: '📝' },
-          { id: 'reports', label: 'Clinical Reports', icon: '📈' }
+          { id: 'po', label: 'Purchase Orders', icon: 'txt' },
+          { id: 'reports', label: 'Reports & Sheets', icon: '📈' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -514,7 +524,7 @@ export default function InventoryDashboard() {
               whiteSpace: 'nowrap'
             }}
           >
-            <span>{tab.icon}</span>
+            <span>{tab.id === 'po' ? '📝' : tab.icon}</span>
             {tab.label}
           </button>
         ))}
@@ -527,11 +537,11 @@ export default function InventoryDashboard() {
           <div className="glass-card-flat" style={{ marginBottom: 'var(--space-md)', padding: '16px' }}>
             <div className="grid-3" style={{ gap: '12px', alignItems: 'center' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Search Materials</label>
+                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Search Materials / SKU</label>
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="Search item name..."
+                  placeholder="Search item name or SKU..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   style={{ margin: 0, padding: '8px 12px', fontSize: '0.85rem' }}
@@ -546,11 +556,10 @@ export default function InventoryDashboard() {
                   style={{ margin: 0, padding: '8px 12px', fontSize: '0.85rem' }}
                 >
                   <option value="">All Categories</option>
-                  <option value="Clinical Supplies">Clinical Supplies</option>
+                  <option value="Medicine">Medicine</option>
+                  <option value="Dental Material">Dental Material</option>
                   <option value="Equipment">Equipment</option>
-                  <option value="Medicines">Medicines</option>
-                  <option value="Personal Protective Equipment">Personal Protective Equipment</option>
-                  <option value="Other">Other</option>
+                  <option value="Consumable">Consumable</option>
                 </select>
               </div>
               <div className="input-group" style={{ marginBottom: 0 }}>
@@ -579,11 +588,12 @@ export default function InventoryDashboard() {
                   <thead>
                     <tr>
                       <th>Material Name</th>
+                      <th>SKU</th>
                       <th>Category</th>
                       <th>Supplier</th>
                       <th style={{ textAlign: 'center' }}>Unit</th>
                       <th style={{ textAlign: 'right' }}>Current Stock</th>
-                      <th style={{ textAlign: 'right' }}>Reorder Level</th>
+                      <th style={{ textAlign: 'right' }}>Min Limit</th>
                       <th style={{ textAlign: 'right' }}>Purchase Price (₹)</th>
                       <th>Expiry Date</th>
                       <th style={{ textAlign: 'center' }}>Stock Adjustment</th>
@@ -593,7 +603,7 @@ export default function InventoryDashboard() {
                   <tbody>
                     {filteredItems.map(item => {
                       const isOutOfStock = item.current_stock <= 0;
-                      const isLowStock = item.current_stock <= item.reorder_level && !isOutOfStock;
+                      const isLowStock = item.current_stock <= item.minimum_stock && !isOutOfStock;
                       
                       let stockColor = 'var(--color-text-primary)';
                       let badgeText = 'Normal';
@@ -615,12 +625,13 @@ export default function InventoryDashboard() {
                       return (
                         <tr key={item.id}>
                           <td style={{ fontWeight: 600 }}>{item.item_name}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.sku || '-'}</td>
                           <td>
                             <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--color-text-secondary)', border: 'none' }}>
                               {item.category}
                             </span>
                           </td>
-                          <td>{item.suppliers?.name || 'Unlinked'}</td>
+                          <td>{item.suppliers?.supplier_name || 'Unlinked'}</td>
                           <td style={{ textAlign: 'center' }}>{item.unit}</td>
                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: stockColor }}>
                             {item.current_stock}
@@ -628,7 +639,7 @@ export default function InventoryDashboard() {
                               {badgeText}
                             </div>
                           </td>
-                          <td style={{ textAlign: 'right' }}>{item.reorder_level}</td>
+                          <td style={{ textAlign: 'right' }}>{item.minimum_stock}</td>
                           <td style={{ textAlign: 'right' }}>{parseFloat(item.purchase_price).toFixed(2)}</td>
                           <td style={{ color: item.expiry_date && new Date(item.expiry_date) <= new Date(Date.now() + 6 * 30 * 24 * 60 * 60 * 1000) ? 'var(--color-danger)' : 'var(--color-text-secondary)' }}>
                             {item.expiry_date || '-'}
@@ -661,10 +672,10 @@ export default function InventoryDashboard() {
                                   setItemFormData({
                                     itemName: item.item_name,
                                     category: item.category,
+                                    sku: item.sku || '',
                                     unit: item.unit,
                                     currentStock: item.current_stock.toString(),
                                     minimumStock: item.minimum_stock.toString(),
-                                    reorderLevel: item.reorder_level.toString(),
                                     purchasePrice: item.purchase_price.toString(),
                                     sellingPrice: item.selling_price ? item.selling_price.toString() : '0',
                                     supplierId: item.supplier_id || '',
@@ -710,7 +721,7 @@ export default function InventoryDashboard() {
                   <thead>
                     <tr>
                       <th>Supplier Name</th>
-                      <th>Contact Representative</th>
+                      <th>Phone Number</th>
                       <th>Email</th>
                       <th>Business Address</th>
                       <th style={{ textAlign: 'center' }}>Actions</th>
@@ -719,8 +730,8 @@ export default function InventoryDashboard() {
                   <tbody>
                     {suppliers.map(sup => (
                       <tr key={sup.id}>
-                        <td style={{ fontWeight: 600 }}>{sup.name}</td>
-                        <td>{sup.contact || '-'}</td>
+                        <td style={{ fontWeight: 600 }}>{sup.supplier_name}</td>
+                        <td>{sup.phone || '-'}</td>
                         <td>{sup.email || '-'}</td>
                         <td>{sup.address || '-'}</td>
                         <td style={{ textAlign: 'center' }}>
@@ -731,8 +742,8 @@ export default function InventoryDashboard() {
                               onClick={() => {
                                 setSelectedSupplier(sup);
                                 setSupplierFormData({
-                                  name: sup.name,
-                                  contact: sup.contact || '',
+                                  supplier_name: sup.supplier_name,
+                                  phone: sup.phone || '',
                                   email: sup.email || '',
                                   address: sup.address || ''
                                 });
@@ -776,7 +787,7 @@ export default function InventoryDashboard() {
                     <tr>
                       <th>PO ID</th>
                       <th>Supplier</th>
-                      <th>Order Date</th>
+                      <th>Date Drafted</th>
                       <th style={{ textAlign: 'right' }}>Total Amount (₹)</th>
                       <th style={{ textAlign: 'center' }}>Status</th>
                       <th style={{ textAlign: 'center' }}>Actions</th>
@@ -800,8 +811,8 @@ export default function InventoryDashboard() {
                       return (
                         <tr key={po.id}>
                           <td style={{ fontWeight: 600 }}>{po.id.toUpperCase()}</td>
-                          <td>{po.suppliers?.name || 'N/A'}</td>
-                          <td>{po.order_date}</td>
+                          <td>{po.suppliers?.supplier_name || 'N/A'}</td>
+                          <td>{po.created_at ? po.created_at.split('T')[0] : 'N/A'}</td>
                           <td style={{ textAlign: 'right', fontWeight: 550 }}>
                             {parseFloat(po.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
@@ -837,14 +848,14 @@ export default function InventoryDashboard() {
         </div>
       )}
 
-      {/* Tab 4: Clinical Reports */}
+      {/* Tab 4: Reports & Sheets */}
       {activeTab === 'reports' && reportsData && (
         <div className="stagger">
           {/* Report filters row */}
           <div className="glass-card-flat" style={{ marginBottom: 'var(--space-md)', padding: '16px' }}>
-            <div className="grid-4" style={{ gap: '12px', alignItems: 'center' }}>
+            <div className="grid-3" style={{ gap: '12px', alignItems: 'center' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Select Report Type</label>
+                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Select Report Sheet</label>
                 <select 
                   className="input-field" 
                   value={reportType} 
@@ -852,34 +863,14 @@ export default function InventoryDashboard() {
                   style={{ margin: 0, padding: '8px 12px', fontSize: '0.85rem' }}
                 >
                   <option value="Stock">Stock Inventory Report</option>
-                  <option value="Purchase">Purchase Supply Report</option>
-                  <option value="Consumption">Material Consumption Report</option>
+                  <option value="Purchase">Purchase Supply Report (IN)</option>
+                  <option value="Consumption">Material Consumption Report (OUT)</option>
                   <option value="Supplier">Supplier Spend Report</option>
                 </select>
               </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Start Date (Optional)</label>
-                <input 
-                  type="date" 
-                  className="input-field" 
-                  value={reportStartDate} 
-                  onChange={e => setReportStartDate(e.target.value)}
-                  style={{ margin: 0, padding: '8px 12px', fontSize: '0.85rem' }}
-                />
-              </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>End Date (Optional)</label>
-                <input 
-                  type="date" 
-                  className="input-field" 
-                  value={reportEndDate} 
-                  onChange={e => setReportEndDate(e.target.value)}
-                  style={{ margin: 0, padding: '8px 12px', fontSize: '0.85rem' }}
-                />
-              </div>
               <div style={{ display: 'flex', gap: '8px', height: '38px', marginTop: '16px' }}>
                 <button className="btn btn-secondary btn-sm" onClick={handleExportCSVReport} style={{ flex: 1 }}>
-                  📥 CSV
+                  📥 Export CSV
                 </button>
                 <a 
                   href={`/api/reports/inventory/pdf?type=${reportType}`} 
@@ -888,7 +879,7 @@ export default function InventoryDashboard() {
                   className="btn btn-primary btn-sm"
                   style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}
                 >
-                  🖨️ PDF
+                  🖨️ Export PDF
                 </a>
               </div>
             </div>
@@ -906,11 +897,12 @@ export default function InventoryDashboard() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Material</th>
+                      <th>Material Name</th>
                       <th>Category</th>
+                      <th>SKU</th>
                       <th style={{ textAlign: 'right' }}>Current Stock</th>
                       <th>Unit</th>
-                      <th style={{ textAlign: 'right' }}>Reorder Level</th>
+                      <th style={{ textAlign: 'right' }}>Min Limit</th>
                       <th style={{ textAlign: 'right' }}>Unit Cost (₹)</th>
                       <th>Supplier</th>
                     </tr>
@@ -920,11 +912,12 @@ export default function InventoryDashboard() {
                       <tr key={item.id}>
                         <td style={{ fontWeight: 600 }}>{item.item_name}</td>
                         <td>{item.category}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{item.sku || '-'}</td>
                         <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{item.current_stock}</td>
                         <td>{item.unit}</td>
-                        <td style={{ textAlign: 'right' }}>{item.reorder_level}</td>
+                        <td style={{ textAlign: 'right' }}>{item.minimum_stock}</td>
                         <td style={{ textAlign: 'right' }}>{parseFloat(item.purchase_price).toFixed(2)}</td>
-                        <td>{item.suppliers?.name || 'Unlinked'}</td>
+                        <td>{item.suppliers?.supplier_name || 'Unlinked'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -942,7 +935,7 @@ export default function InventoryDashboard() {
                       <th>Item Name</th>
                       <th style={{ textAlign: 'right' }}>Quantity Received</th>
                       <th>Unit</th>
-                      <th>Transaction Notes</th>
+                      <th>Transaction Reason</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -952,7 +945,7 @@ export default function InventoryDashboard() {
                         <td style={{ fontWeight: 600 }}>{tx.inventory_items?.item_name || 'Deleted Item'}</td>
                         <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 'bold' }}>+{tx.quantity}</td>
                         <td>{tx.inventory_items?.unit || '-'}</td>
-                        <td>{tx.notes}</td>
+                        <td>{tx.reason || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -970,7 +963,7 @@ export default function InventoryDashboard() {
                       <th>Item Name</th>
                       <th style={{ textAlign: 'right' }}>Quantity Deducted</th>
                       <th>Unit</th>
-                      <th>Procedure Reference / Notes</th>
+                      <th>Deduction Reason / Treatment Reference</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -980,7 +973,7 @@ export default function InventoryDashboard() {
                         <td style={{ fontWeight: 600 }}>{tx.inventory_items?.item_name || 'Deleted Item'}</td>
                         <td style={{ textAlign: 'right', color: 'var(--color-danger)', fontWeight: 'bold' }}>{tx.quantity}</td>
                         <td>{tx.inventory_items?.unit || '-'}</td>
-                        <td>{tx.notes}</td>
+                        <td>{tx.reason || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -988,7 +981,7 @@ export default function InventoryDashboard() {
               </div>
             )}
 
-            {/* 4. Supplier Report */}
+            {/* 4. Supplier Spend Report */}
             {reportType === 'Supplier' && (
               <div className="table-container">
                 <table className="data-table">
@@ -1001,8 +994,8 @@ export default function InventoryDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(reportsData.supplierReport || []).map(sup => (
-                      <tr key={sup.id}>
+                    {(reportsData.supplierReport || []).map((sup, idx) => (
+                      <tr key={idx}>
                         <td style={{ fontWeight: 600 }}>{sup.name}</td>
                         <td style={{ textAlign: 'right' }}>{sup.poCount}</td>
                         <td style={{ textAlign: 'right' }}>{sup.itemCount}</td>
@@ -1032,21 +1025,21 @@ export default function InventoryDashboard() {
       }>
         <div className="input-group">
           <label>Supplier / Company Name *</label>
-          <input type="text" className="input-field" placeholder="Dental Tech Ltd" value={supplierFormData.name} onChange={e => setSupplierFormData({...supplierFormData, name: e.target.value})} required />
+          <input type="text" className="input-field" placeholder="Dental Supplies India Ltd" value={supplierFormData.supplier_name} onChange={e => setSupplierFormData({...supplierFormData, supplier_name: e.target.value})} required />
         </div>
         <div className="grid-2">
           <div className="input-group">
-            <label>Contact Phone</label>
-            <input type="text" className="input-field" placeholder="+91 999..." value={supplierFormData.contact} onChange={e => setSupplierFormData({...supplierFormData, contact: e.target.value})} />
+            <label>Phone Number</label>
+            <input type="text" className="input-field" placeholder="+91 9876543210" value={supplierFormData.phone} onChange={e => setSupplierFormData({...supplierFormData, phone: e.target.value})} />
           </div>
           <div className="input-group">
             <label>Business Email</label>
-            <input type="email" className="input-field" placeholder="sales@..." value={supplierFormData.email} onChange={e => setSupplierFormData({...supplierFormData, email: e.target.value})} />
+            <input type="email" className="input-field" placeholder="sales@dentalsupply.com" value={supplierFormData.email} onChange={e => setSupplierFormData({...supplierFormData, email: e.target.value})} />
           </div>
         </div>
         <div className="input-group">
-          <label>Office / Warehouse Address</label>
-          <textarea className="input-field" placeholder="Full address details..." rows={2} value={supplierFormData.address} onChange={e => setSupplierFormData({...supplierFormData, address: e.target.value})} />
+          <label>Office Address</label>
+          <textarea className="input-field" placeholder="Warehouse / Office address..." rows={2} value={supplierFormData.address} onChange={e => setSupplierFormData({...supplierFormData, address: e.target.value})} />
         </div>
       </Modal>
 
@@ -1059,12 +1052,12 @@ export default function InventoryDashboard() {
       }>
         <div className="input-group">
           <label>Supplier / Company Name *</label>
-          <input type="text" className="input-field" value={supplierFormData.name} onChange={e => setSupplierFormData({...supplierFormData, name: e.target.value})} required />
+          <input type="text" className="input-field" value={supplierFormData.supplier_name} onChange={e => setSupplierFormData({...supplierFormData, supplier_name: e.target.value})} required />
         </div>
         <div className="grid-2">
           <div className="input-group">
-            <label>Contact Phone</label>
-            <input type="text" className="input-field" value={supplierFormData.contact} onChange={e => setSupplierFormData({...supplierFormData, contact: e.target.value})} />
+            <label>Phone Number</label>
+            <input type="text" className="input-field" value={supplierFormData.phone} onChange={e => setSupplierFormData({...supplierFormData, phone: e.target.value})} />
           </div>
           <div className="input-group">
             <label>Business Email</label>
@@ -1072,13 +1065,13 @@ export default function InventoryDashboard() {
           </div>
         </div>
         <div className="input-group">
-          <label>Office / Warehouse Address</label>
+          <label>Office Address</label>
           <textarea className="input-field" rows={2} value={supplierFormData.address} onChange={e => setSupplierFormData({...supplierFormData, address: e.target.value})} />
         </div>
       </Modal>
 
       {/* 3. Add Item Modal */}
-      <Modal isOpen={showItemModal} onClose={() => setShowItemModal(false)} title="Add New Inventory Material" footer={
+      <Modal isOpen={showItemModal} onClose={() => setShowItemModal(false)} title="Add New Inventory Item" footer={
         <>
           <button className="btn btn-secondary" onClick={() => setShowItemModal(false)}>Cancel</button>
           <button className="btn btn-primary" onClick={handleAddItem}>Add Material</button>
@@ -1087,21 +1080,24 @@ export default function InventoryDashboard() {
         <div className="grid-2">
           <div className="input-group">
             <label>Material Name *</label>
-            <input type="text" className="input-field" placeholder="Root Canal File" value={itemFormData.itemName} onChange={e => setItemFormData({...itemFormData, itemName: e.target.value})} required />
+            <input type="text" className="input-field" placeholder="GIC Sealer" value={itemFormData.itemName} onChange={e => setItemFormData({...itemFormData, itemName: e.target.value})} required />
           </div>
           <div className="input-group">
             <label>Category *</label>
             <select className="input-field" value={itemFormData.category} onChange={e => setItemFormData({...itemFormData, category: e.target.value})}>
-              <option value="Clinical Supplies">Clinical Supplies</option>
+              <option value="Medicine">Medicine</option>
+              <option value="Dental Material">Dental Material</option>
               <option value="Equipment">Equipment</option>
-              <option value="Medicines">Medicines</option>
-              <option value="Personal Protective Equipment">Personal Protective Equipment</option>
-              <option value="Other">Other</option>
+              <option value="Consumable">Consumable</option>
             </select>
           </div>
         </div>
 
         <div className="grid-3">
+          <div className="input-group">
+            <label>SKU Code</label>
+            <input type="text" className="input-field" placeholder="DM-SLR-02" value={itemFormData.sku} onChange={e => setItemFormData({...itemFormData, sku: e.target.value})} />
+          </div>
           <div className="input-group">
             <label>Unit Format *</label>
             <input type="text" className="input-field" placeholder="Pcs / Box" value={itemFormData.unit} onChange={e => setItemFormData({...itemFormData, unit: e.target.value})} required />
@@ -1110,27 +1106,23 @@ export default function InventoryDashboard() {
             <label>Initial Stock *</label>
             <input type="number" className="input-field" value={itemFormData.currentStock} onChange={e => setItemFormData({...itemFormData, currentStock: e.target.value})} required />
           </div>
-          <div className="input-group">
-            <label>Supplier</label>
-            <select className="input-field" value={itemFormData.supplierId} onChange={e => setItemFormData({...itemFormData, supplierId: e.target.value})}>
-              <option value="">-- No Supplier --</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
         </div>
 
         <div className="grid-3">
           <div className="input-group">
-            <label>Min Stock Alert *</label>
+            <label>Min Stock Limit *</label>
             <input type="number" className="input-field" value={itemFormData.minimumStock} onChange={e => setItemFormData({...itemFormData, minimumStock: e.target.value})} required />
-          </div>
-          <div className="input-group">
-            <label>Reorder Level *</label>
-            <input type="number" className="input-field" value={itemFormData.reorderLevel} onChange={e => setItemFormData({...itemFormData, reorderLevel: e.target.value})} required />
           </div>
           <div className="input-group">
             <label>Expiry Date</label>
             <input type="date" className="input-field" value={itemFormData.expiryDate} onChange={e => setItemFormData({...itemFormData, expiryDate: e.target.value})} />
+          </div>
+          <div className="input-group">
+            <label>Preferred Supplier</label>
+            <select className="input-field" value={itemFormData.supplierId} onChange={e => setItemFormData({...itemFormData, supplierId: e.target.value})}>
+              <option value="">-- No Supplier --</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}
+            </select>
           </div>
         </div>
 
@@ -1161,16 +1153,19 @@ export default function InventoryDashboard() {
           <div className="input-group">
             <label>Category *</label>
             <select className="input-field" value={itemFormData.category} onChange={e => setItemFormData({...itemFormData, category: e.target.value})}>
-              <option value="Clinical Supplies">Clinical Supplies</option>
+              <option value="Medicine">Medicine</option>
+              <option value="Dental Material">Dental Material</option>
               <option value="Equipment">Equipment</option>
-              <option value="Medicines">Medicines</option>
-              <option value="Personal Protective Equipment">Personal Protective Equipment</option>
-              <option value="Other">Other</option>
+              <option value="Consumable">Consumable</option>
             </select>
           </div>
         </div>
 
         <div className="grid-3">
+          <div className="input-group">
+            <label>SKU Code</label>
+            <input type="text" className="input-field" value={itemFormData.sku} onChange={e => setItemFormData({...itemFormData, sku: e.target.value})} />
+          </div>
           <div className="input-group">
             <label>Unit Format *</label>
             <input type="text" className="input-field" value={itemFormData.unit} onChange={e => setItemFormData({...itemFormData, unit: e.target.value})} required />
@@ -1179,27 +1174,23 @@ export default function InventoryDashboard() {
             <label>Current Stock (Read Only)</label>
             <input type="number" className="input-field" value={itemFormData.currentStock} disabled />
           </div>
-          <div className="input-group">
-            <label>Supplier</label>
-            <select className="input-field" value={itemFormData.supplierId} onChange={e => setItemFormData({...itemFormData, supplierId: e.target.value})}>
-              <option value="">-- No Supplier --</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
         </div>
 
         <div className="grid-3">
           <div className="input-group">
-            <label>Min Stock Alert *</label>
+            <label>Min Stock Limit *</label>
             <input type="number" className="input-field" value={itemFormData.minimumStock} onChange={e => setItemFormData({...itemFormData, minimumStock: e.target.value})} required />
-          </div>
-          <div className="input-group">
-            <label>Reorder Level *</label>
-            <input type="number" className="input-field" value={itemFormData.reorderLevel} onChange={e => setItemFormData({...itemFormData, reorderLevel: e.target.value})} required />
           </div>
           <div className="input-group">
             <label>Expiry Date</label>
             <input type="date" className="input-field" value={itemFormData.expiryDate} onChange={e => setItemFormData({...itemFormData, expiryDate: e.target.value})} />
+          </div>
+          <div className="input-group">
+            <label>Preferred Supplier</label>
+            <select className="input-field" value={itemFormData.supplierId} onChange={e => setItemFormData({...itemFormData, supplierId: e.target.value})}>
+              <option value="">-- No Supplier --</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}
+            </select>
           </div>
         </div>
 
@@ -1216,7 +1207,7 @@ export default function InventoryDashboard() {
       </Modal>
 
       {/* 5. Create Purchase Order Modal */}
-      <Modal isOpen={showPOModal} onClose={() => setShowPOModal(false)} title="Draft Purchase Order" footer={
+      <Modal isOpen={showPOModal} onClose={() => setShowPOModal(false)} title="Create Purchase Order" footer={
         <>
           <button className="btn btn-secondary" onClick={() => setShowPOModal(false)}>Cancel</button>
           <button className="btn btn-primary" onClick={handleCreatePO}>Save PO Draft</button>
@@ -1227,12 +1218,15 @@ export default function InventoryDashboard() {
             <label>Supplier *</label>
             <select className="input-field" value={poSupplierId} onChange={e => setPOSupplierId(e.target.value)} required>
               <option value="">-- Select Supplier --</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}
             </select>
           </div>
           <div className="input-group">
-            <label>Order Date</label>
-            <input type="date" className="input-field" value={poOrderDate} onChange={e => setPOOrderDate(e.target.value)} />
+            <label>Status</label>
+            <select className="input-field" value={poStatus} onChange={e => setPOStatus(e.target.value)}>
+              <option value="Draft">Draft</option>
+              <option value="Ordered">Ordered / Sent</option>
+            </select>
           </div>
         </div>
 
@@ -1289,19 +1283,11 @@ export default function InventoryDashboard() {
             }
           </div>
         </div>
-
-        <div className="input-group" style={{ marginTop: '12px' }}>
-          <label>Status</label>
-          <select className="input-field" value={poStatus} onChange={e => setPOStatus(e.target.value)}>
-            <option value="Draft">Draft</option>
-            <option value="Ordered">Ordered / Outgoing</option>
-          </select>
-        </div>
       </Modal>
 
       {/* 6. PO Details & Receive Modal */}
       {selectedPO && (
-        <Modal isOpen={showPODetailsModal} onClose={() => { setShowPODetailsModal(false); setSelectedPO(null); }} title={`Purchase Order Details: ${selectedPO.id.toUpperCase()}`} footer={
+        <Modal isOpen={showPODetailsModal} onClose={() => { setShowPODetailsModal(false); setSelectedPO(null); }} title={`Purchase Order: ${selectedPO.id.toUpperCase()}`} footer={
           <div className="flex-between" style={{ width: '100%' }}>
             {selectedPO.status !== 'Received' && selectedPO.status !== 'Cancelled' ? (
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -1314,8 +1300,8 @@ export default function InventoryDashboard() {
         }>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '10px' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Supplier: {selectedPO.suppliers?.name}</h3>
-              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>Order Date: {selectedPO.order_date} · Current Status: <strong>{selectedPO.status}</strong></p>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Supplier: {selectedPO.suppliers?.supplier_name}</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>Status: <strong>{selectedPO.status}</strong></p>
             </div>
 
             <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Ordered Items List</h4>

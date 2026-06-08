@@ -15,7 +15,7 @@ export async function PUT(request, { params }) {
     }
 
     const body = await request.json();
-    const { itemName, category, unit, currentStock, minimumStock, reorderLevel, purchasePrice, sellingPrice, supplierId, expiryDate } = body;
+    const { itemName, category, sku, unit, currentStock, minimumStock, purchasePrice, sellingPrice, supplierId, expiryDate } = body;
 
     const supabase = getDB();
     
@@ -33,10 +33,10 @@ export async function PUT(request, { params }) {
     const updatePayload = {};
     if (itemName) updatePayload.item_name = itemName;
     if (category) updatePayload.category = category;
+    if (sku !== undefined) updatePayload.sku = sku;
     if (unit) updatePayload.unit = unit;
     if (currentStock !== undefined) updatePayload.current_stock = parseInt(currentStock);
     if (minimumStock !== undefined) updatePayload.minimum_stock = parseInt(minimumStock);
-    if (reorderLevel !== undefined) updatePayload.reorder_level = parseInt(reorderLevel);
     if (purchasePrice !== undefined) updatePayload.purchase_price = parseFloat(purchasePrice);
     if (sellingPrice !== undefined) updatePayload.selling_price = parseFloat(sellingPrice);
     if (supplierId !== undefined) updatePayload.supplier_id = supplierId || null;
@@ -46,7 +46,7 @@ export async function PUT(request, { params }) {
       .from('inventory_items')
       .update(updatePayload)
       .eq('id', id)
-      .select('*, suppliers(name)')
+      .select('*, suppliers(supplier_name)')
       .single();
 
     if (updateErr) throw updateErr;
@@ -54,13 +54,14 @@ export async function PUT(request, { params }) {
     // Log transaction if stock changed manually (Adjustment)
     if (currentStock !== undefined && parseInt(currentStock) !== existing.current_stock) {
       const diff = parseInt(currentStock) - existing.current_stock;
-      await supabase.from('inventory_transactions').insert([
+      await supabase.from('stock_transactions').insert([
         {
-          id: `itx-${uuidv4().substring(0, 8)}`,
-          item_id: id,
-          transaction_type: 'Adjustment',
+          id: `stx-${uuidv4().substring(0, 8)}`,
+          inventory_item_id: id,
+          transaction_type: 'ADJUSTMENT',
           quantity: diff,
-          notes: `Manual adjustment from update (Previous: ${existing.current_stock}, New: ${currentStock})`
+          reason: `Manual adjustment from update (Previous: ${existing.current_stock}, New: ${currentStock})`,
+          staff_id: user.id || null
         }
       ]);
     }

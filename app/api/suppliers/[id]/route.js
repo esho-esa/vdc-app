@@ -15,12 +15,12 @@ export async function PUT(request, { params }) {
     }
 
     const body = await request.json();
-    const { name, contact, email, address } = body;
+    const { supplier_name, phone, email, address } = body;
 
     const supabase = getDB();
     const updatePayload = {};
-    if (name) updatePayload.name = name;
-    if (contact !== undefined) updatePayload.contact = contact;
+    if (supplier_name) updatePayload.supplier_name = supplier_name;
+    if (phone !== undefined) updatePayload.phone = phone;
     if (email !== undefined) updatePayload.email = email;
     if (address !== undefined) updatePayload.address = address;
 
@@ -38,7 +38,7 @@ export async function PUT(request, { params }) {
     await supabase.from('activity_log').insert([
       {
         id: `act-${uuidv4().substring(0, 8)}`,
-        text: `Supplier updated: ${updated.name}`,
+        text: `Supplier updated: ${updated.supplier_name}`,
         subtext: `Updated by ${username}`,
         color: 'blue'
       }
@@ -66,7 +66,7 @@ export async function DELETE(request, { params }) {
     // Fetch name to log correctly
     const { data: supplier, error: fetchErr } = await supabase
       .from('suppliers')
-      .select('name')
+      .select('supplier_name')
       .eq('id', id)
       .single();
 
@@ -86,7 +86,7 @@ export async function DELETE(request, { params }) {
     await supabase.from('activity_log').insert([
       {
         id: `act-${uuidv4().substring(0, 8)}`,
-        text: `Supplier deleted: ${supplier.name}`,
+        text: `Supplier deleted: ${supplier.supplier_name}`,
         subtext: `Removed by ${username}`,
         color: 'red'
       }

@@ -20,7 +20,7 @@ export async function GET(request) {
     const supabase = getDB();
     let query = supabase
       .from('inventory_items')
-      .select('*, suppliers(name)');
+      .select('*, suppliers(supplier_name, phone)');
 
     if (category) {
       query = query.eq('category', category);
@@ -31,7 +31,7 @@ export async function GET(request) {
 
     let result = items || [];
     if (lowStockOnly) {
-      result = result.filter(item => item.current_stock <= item.reorder_level);
+      result = result.filter(item => item.current_stock <= item.minimum_stock);
     }
 
     return NextResponse.json(result);
@@ -52,7 +52,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { itemName, category, unit, currentStock, minimumStock, reorderLevel, purchasePrice, sellingPrice, supplierId, expiryDate } = body;
+    const { itemName, category, sku, unit, currentStock, minimumStock, purchasePrice, sellingPrice, supplierId, expiryDate } = body;
 
     if (!itemName || !category || !unit) {
       return NextResponse.json({ error: 'Item Name, Category, and Unit are required' }, { status: 400 });
@@ -68,30 +68,31 @@ export async function POST(request) {
           id,
           item_name: itemName,
           category,
+          sku: sku || '',
           unit,
           current_stock: parseInt(currentStock) || 0,
           minimum_stock: parseInt(minimumStock) || 0,
-          reorder_level: parseInt(reorderLevel) || 0,
           purchase_price: parseFloat(purchasePrice) || 0,
           selling_price: parseFloat(sellingPrice) || 0,
           supplier_id: supplierId || null,
           expiry_date: expiryDate || null
         }
       ])
-      .select('*, suppliers(name)')
+      .select('*, suppliers(supplier_name)')
       .single();
 
     if (insertError) throw insertError;
 
     // Log transaction if initial stock > 0
     if (parseInt(currentStock) > 0) {
-      await supabase.from('inventory_transactions').insert([
+      await supabase.from('stock_transactions').insert([
         {
-          id: `itx-${uuidv4().substring(0, 8)}`,
-          item_id: id,
-          transaction_type: 'Adjustment',
+          id: `stx-${uuidv4().substring(0, 8)}`,
+          inventory_item_id: id,
+          transaction_type: 'ADJUSTMENT',
           quantity: parseInt(currentStock),
-          notes: 'Initial stock setup'
+          reason: 'Initial stock setup',
+          staff_id: user.id || null
         }
       ]);
     }

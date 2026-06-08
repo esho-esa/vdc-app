@@ -18,12 +18,12 @@ export async function GET(request) {
 
     const supabase = getDB();
     let query = supabase
-      .from('inventory_transactions')
+      .from('stock_transactions')
       .select('*, inventory_items(item_name, unit, category)')
       .order('created_at', { ascending: false });
 
     if (itemId) {
-      query = query.eq('item_id', itemId);
+      query = query.eq('inventory_item_id', itemId);
     }
 
     const { data: transactions, error } = await query;
@@ -84,17 +84,26 @@ export async function POST(request) {
 
     if (updateErr) throw updateErr;
 
+    // Translate transactionType to IN/OUT/ADJUSTMENT
+    let type = 'ADJUSTMENT';
+    if (transactionType === 'IN' || transactionType === 'Purchase') {
+      type = 'IN';
+    } else if (transactionType === 'OUT' || transactionType === 'Usage') {
+      type = 'OUT';
+    }
+
     // Create transaction log
-    const txId = `itx-${uuidv4().substring(0, 8)}`;
+    const txId = `stx-${uuidv4().substring(0, 8)}`;
     const { data: inserted, error: insertErr } = await supabase
-      .from('inventory_transactions')
+      .from('stock_transactions')
       .insert([
         {
           id: txId,
-          item_id: itemId,
-          transaction_type: transactionType,
+          inventory_item_id: itemId,
+          transaction_type: type,
           quantity: qty,
-          notes: notes || ''
+          reason: notes || '',
+          staff_id: user.id || null
         }
       ])
       .select('*, inventory_items(item_name, unit)')
@@ -103,7 +112,7 @@ export async function POST(request) {
     if (insertErr) throw insertErr;
 
     // Trigger low stock notifications if necessary
-    if (newStock <= item.reorder_level) {
+    if (newStock <= item.minimum_stock) {
       // Create notification
       await supabase.from('notifications').insert([
         {
