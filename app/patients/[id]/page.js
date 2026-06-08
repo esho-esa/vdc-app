@@ -39,6 +39,14 @@ export default function PatientProfile({ params }) {
   const [medicalNotesText, setMedicalNotesText] = useState('');
   const [isNotesSaving, setIsNotesSaving] = useState(false);
 
+  // Payment states
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false);
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [paymentFormData, setPaymentFormData] = useState({ amount: '', paymentDate: new Date().toISOString().split('T')[0], paymentMethod: 'UPI', referenceNumber: '', notes: '' });
+  const [isPaymentSaving, setIsPaymentSaving] = useState(false);
+  const [paymentErrorMsg, setPaymentErrorMsg] = useState('');
+
   function handleAddMedicine() {
     setRxFormData({ ...rxFormData, medications: [...rxFormData.medications, { name: '', price: '' }] });
   }
@@ -274,6 +282,123 @@ export default function PatientProfile({ params }) {
     }
   }
 
+  async function handleRecordPayment() {
+    const amt = parseFloat(paymentFormData.amount);
+    if (isNaN(amt) || amt <= 0) {
+      setPaymentErrorMsg('Payment amount must be greater than zero.');
+      return;
+    }
+    if (amt > pendingBalance) {
+      setPaymentErrorMsg(`Payment amount cannot exceed the pending balance of ₹${pendingBalance.toLocaleString('en-IN')}.`);
+      return;
+    }
+
+    setPaymentErrorMsg('');
+    setIsPaymentSaving(true);
+    try {
+      const res = await fetch(`/api/patients/${id}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amt,
+          paymentDate: paymentFormData.paymentDate,
+          paymentMethod: paymentFormData.paymentMethod,
+          referenceNumber: paymentFormData.referenceNumber,
+          notes: paymentFormData.notes
+        })
+      });
+
+      if (res.ok) {
+        const newPay = await res.json();
+        setData({
+          ...data,
+          payments: [newPay, ...(data.payments || [])]
+        });
+        setShowRecordPaymentModal(false);
+      } else {
+        const err = await res.json();
+        setPaymentErrorMsg(err.error || 'Failed to record payment.');
+      }
+    } catch (e) {
+      console.error(e);
+      setPaymentErrorMsg('Error saving payment record.');
+    } finally {
+      setIsPaymentSaving(false);
+    }
+  }
+
+  async function handleSavePaymentEdit() {
+    const amt = parseFloat(paymentFormData.amount);
+    if (isNaN(amt) || amt <= 0) {
+      setPaymentErrorMsg('Payment amount must be greater than zero.');
+      return;
+    }
+    
+    const otherPaid = (data.payments || [])
+      .filter(p => p.id !== selectedPayment.id)
+      .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const maxAllowed = Math.max(0, totalSpent - otherPaid);
+
+    if (amt > maxAllowed) {
+      setPaymentErrorMsg(`Payment amount cannot exceed the pending balance of ₹${maxAllowed.toLocaleString('en-IN')}.`);
+      return;
+    }
+
+    setPaymentErrorMsg('');
+    setIsPaymentSaving(true);
+    try {
+      const res = await fetch(`/api/patients/${id}/payments/${selectedPayment.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amt,
+          paymentDate: paymentFormData.paymentDate,
+          paymentMethod: paymentFormData.paymentMethod,
+          referenceNumber: paymentFormData.referenceNumber,
+          notes: paymentFormData.notes
+        })
+      });
+
+      if (res.ok) {
+        const updatedPay = await res.json();
+        setData({
+          ...data,
+          payments: data.payments.map(p => p.id === selectedPayment.id ? updatedPay : p)
+        });
+        setShowEditPaymentModal(false);
+        setSelectedPayment(null);
+      } else {
+        const err = await res.json();
+        setPaymentErrorMsg(err.error || 'Failed to update payment.');
+      }
+    } catch (e) {
+      console.error(e);
+      setPaymentErrorMsg('Error saving payment updates.');
+    } finally {
+      setIsPaymentSaving(false);
+    }
+  }
+
+  async function handleDeletePayment(payId) {
+    if (!confirm('Are you sure you want to delete this payment record? This will instantly increase the outstanding balance.')) return;
+    try {
+      const res = await fetch(`/api/patients/${id}/payments/${payId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setData({
+          ...data,
+          payments: data.payments.filter(p => p.id !== payId)
+        });
+      } else {
+        alert('Failed to delete payment');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error deleting payment record');
+    }
+  }
+
   async function handleSaveMedicalNotes() {
     setIsNotesSaving(true);
     try {
@@ -347,6 +472,8 @@ export default function PatientProfile({ params }) {
   });
   const patientPrescriptions = data.prescriptions || [];
   const totalSpent = patientTreatments.reduce((s, t) => s + t.cost, 0);
+  const totalPaid = (data.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const pendingBalance = Math.max(0, totalSpent - totalPaid);
   const avatar = patient.name ? patient.name.substring(0, 2).toUpperCase() : 'U';
 
   const totalTreatmentFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.treatmentFee) || 0), 0);
@@ -367,8 +494,15 @@ export default function PatientProfile({ params }) {
   const filteredTotalSurgery = filteredTreatments.reduce((sum, t) => sum + (parseFloat(t.surgery_fee) || 0), 0);
   const filteredTotalConsultation = filteredTreatments.reduce((sum, t) => sum + (parseFloat(t.consultation_fee) || 0), 0);
   const filteredGrandTotal = filteredTotalTreatment + filteredTotalSurgery + filteredTotalConsultation;
-  const filteredPayments = filteredGrandTotal;
-  const filteredOutstanding = 0;
+  
+  // Filter payments matching date range
+  const filteredPaymentsList = (data.payments || []).filter(p => {
+    if (filterStartDate && p.payment_date < filterStartDate) return false;
+    if (filterEndDate && p.payment_date > filterEndDate) return false;
+    return true;
+  });
+  const filteredPayments = filteredPaymentsList.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+  const filteredOutstanding = Math.max(0, filteredGrandTotal - filteredPayments);
 
   const billingPdfUrl = `/api/patients/${id}/billing-pdf?startDate=${filterStartDate}&endDate=${filterEndDate}&dentist=${encodeURIComponent(filterDentist)}`;
 
@@ -428,17 +562,42 @@ export default function PatientProfile({ params }) {
           </div>
         </div>
         {user?.role === 'admin' && (
-          <div 
-            className="glass-card stat-card clickable" 
-            onClick={() => setShowBillingModal(true)}
-            data-tooltip="Click to view billing breakdown"
-          >
-            <div className="stat-icon purple">💰</div>
-            <div className="stat-info">
-              <div className="stat-value">₹{totalSpent}</div>
-              <div className="stat-label">Total Billed</div>
+          <>
+            <div 
+              className="glass-card stat-card clickable" 
+              onClick={() => setShowBillingModal(true)}
+              data-tooltip="Click to view billing breakdown"
+            >
+              <div className="stat-icon purple">💰</div>
+              <div className="stat-info">
+                <div className="stat-value">₹{totalSpent.toLocaleString('en-IN')}</div>
+                <div className="stat-label">Total Billed</div>
+              </div>
             </div>
-          </div>
+            <div className="glass-card stat-card">
+              <div className="stat-icon green">💵</div>
+              <div className="stat-info">
+                <div className="stat-value" style={{ color: 'var(--color-success)' }}>₹{totalPaid.toLocaleString('en-IN')}</div>
+                <div className="stat-label">Total Paid</div>
+              </div>
+            </div>
+            <div className="glass-card stat-card">
+              <div className="stat-icon orange">⚖️</div>
+              <div className="stat-info">
+                <div className="stat-value" style={{ color: pendingBalance > 0 ? 'var(--color-warning)' : 'var(--color-success)' }}>
+                  ₹{pendingBalance.toLocaleString('en-IN')}
+                </div>
+                <div className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                  <span>Pending Balance</span>
+                  {pendingBalance === 0 ? (
+                    <span className="badge" style={{ fontSize: '0.625rem', padding: '2px 6px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>PAID IN FULL</span>
+                  ) : (
+                    <span className="badge" style={{ fontSize: '0.625rem', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>PENDING</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
         )}
         <div 
           className="glass-card stat-card clickable" 
@@ -620,6 +779,102 @@ export default function PatientProfile({ params }) {
           <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>No prescriptions generated</div>
         )}
       </div>
+
+      {/* Payment History & Ledgers */}
+      {user?.role === 'admin' && (
+        <div className="glass-card-flat" style={{ marginTop: 'var(--space-lg)' }}>
+          <div className="flex-between" style={{ marginBottom: 'var(--space-md)' }}>
+            <h2 className="section-title">Payment History & Ledgers</h2>
+            <button className="btn btn-primary btn-sm" onClick={() => {
+              setPaymentFormData({
+                amount: '',
+                paymentDate: new Date().toISOString().split('T')[0],
+                paymentMethod: 'UPI',
+                referenceNumber: '',
+                notes: ''
+              });
+              setShowRecordPaymentModal(true);
+            }}>
+              + Record Payment
+            </button>
+          </div>
+
+          {(data.payments || []).length > 0 ? (
+            <div className="table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Reference</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.payments || []).map((pay) => (
+                    <tr key={pay.id}>
+                      <td style={{ fontWeight: 500 }}>{pay.payment_date}</td>
+                      <td style={{ fontWeight: 600, color: 'var(--color-success)' }}>
+                        ₹{parseFloat(pay.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td>
+                        <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>
+                          {pay.payment_method}
+                        </span>
+                      </td>
+                      <td>{pay.reference_number || '-'}</td>
+                      <td>{pay.notes || '-'}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <a 
+                            href={`/api/patients/${id}/payments/${pay.id}/receipt-pdf`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="badge" 
+                            style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--color-success)', border: 'none' }}
+                          >
+                            🖨️ Receipt
+                          </a>
+                          <button 
+                            className="badge" 
+                            style={{ cursor: 'pointer', border: 'none', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--color-warning)' }}
+                            onClick={() => {
+                              setSelectedPayment(pay);
+                              setPaymentFormData({
+                                amount: pay.amount.toString(),
+                                paymentDate: pay.payment_date,
+                                paymentMethod: pay.payment_method,
+                                referenceNumber: pay.reference_number || '',
+                                notes: pay.notes || ''
+                              });
+                              setShowEditPaymentModal(true);
+                            }}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button 
+                            className="badge" 
+                            style={{ cursor: 'pointer', border: 'none', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}
+                            onClick={() => handleDeletePayment(pay.id)}
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+              No payments recorded yet.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Edit Profile Modal */}
       <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Edit Patient Profile" footer={
@@ -1065,6 +1320,102 @@ export default function PatientProfile({ params }) {
             disabled={isNotesSaving}
             style={{ fontSize: '0.9rem', lineHeight: '1.4' }}
           />
+        </div>
+      </Modal>
+
+      {/* Record Payment Modal */}
+      <Modal 
+        isOpen={showRecordPaymentModal} 
+        onClose={() => { setShowRecordPaymentModal(false); setPaymentErrorMsg(''); }} 
+        title="Record New Payment" 
+        footer={
+          <>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setShowRecordPaymentModal(false); setPaymentErrorMsg(''); }} disabled={isPaymentSaving}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={handleRecordPayment} disabled={isPaymentSaving}>{isPaymentSaving ? 'Saving...' : 'Save Payment'}</button>
+          </>
+        }
+      >
+        {paymentErrorMsg && (
+          <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)', marginBottom: '16px', fontSize: '0.85rem' }}>
+            ⚠️ {paymentErrorMsg}
+          </div>
+        )}
+        <div className="grid-2">
+          <div className="input-group">
+            <label>Payment Date</label>
+            <input type="date" className="input-field" value={paymentFormData.paymentDate} onChange={e => setPaymentFormData({...paymentFormData, paymentDate: e.target.value})} />
+          </div>
+          <div className="input-group">
+            <label>Amount (₹) *</label>
+            <input type="number" step="0.01" placeholder="e.g. 5000" className="input-field" value={paymentFormData.amount} onChange={e => setPaymentFormData({...paymentFormData, amount: e.target.value})} />
+          </div>
+        </div>
+        <div className="input-group">
+          <label>Payment Method *</label>
+          <select className="input-field" value={paymentFormData.paymentMethod} onChange={e => setPaymentFormData({...paymentFormData, paymentMethod: e.target.value})}>
+            <option value="Cash">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="Credit Card">Credit Card</option>
+            <option value="Debit Card">Debit Card</option>
+            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="Cheque">Cheque</option>
+          </select>
+        </div>
+        <div className="input-group">
+          <label>Reference Number (Optional)</label>
+          <input type="text" placeholder="e.g. TXN12345678" className="input-field" value={paymentFormData.referenceNumber} onChange={e => setPaymentFormData({...paymentFormData, referenceNumber: e.target.value})} />
+        </div>
+        <div className="input-group">
+          <label>Notes (Optional)</label>
+          <textarea className="input-field" placeholder="Any payment remarks..." rows={2} value={paymentFormData.notes} onChange={e => setPaymentFormData({...paymentFormData, notes: e.target.value})} />
+        </div>
+      </Modal>
+
+      {/* Edit Payment Modal */}
+      <Modal 
+        isOpen={showEditPaymentModal} 
+        onClose={() => { setShowEditPaymentModal(false); setPaymentErrorMsg(''); setSelectedPayment(null); }} 
+        title="Edit Payment Record" 
+        footer={
+          <>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setShowEditPaymentModal(false); setPaymentErrorMsg(''); setSelectedPayment(null); }} disabled={isPaymentSaving}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={handleSavePaymentEdit} disabled={isPaymentSaving}>{isPaymentSaving ? 'Saving...' : 'Save Changes'}</button>
+          </>
+        }
+      >
+        {paymentErrorMsg && (
+          <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)', marginBottom: '16px', fontSize: '0.85rem' }}>
+            ⚠️ {paymentErrorMsg}
+          </div>
+        )}
+        <div className="grid-2">
+          <div className="input-group">
+            <label>Payment Date</label>
+            <input type="date" className="input-field" value={paymentFormData.paymentDate} onChange={e => setPaymentFormData({...paymentFormData, paymentDate: e.target.value})} />
+          </div>
+          <div className="input-group">
+            <label>Amount (₹) *</label>
+            <input type="number" step="0.01" placeholder="e.g. 5000" className="input-field" value={paymentFormData.amount} onChange={e => setPaymentFormData({...paymentFormData, amount: e.target.value})} />
+          </div>
+        </div>
+        <div className="input-group">
+          <label>Payment Method *</label>
+          <select className="input-field" value={paymentFormData.paymentMethod} onChange={e => setPaymentFormData({...paymentFormData, paymentMethod: e.target.value})}>
+            <option value="Cash">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="Credit Card">Credit Card</option>
+            <option value="Debit Card">Debit Card</option>
+            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="Cheque">Cheque</option>
+          </select>
+        </div>
+        <div className="input-group">
+          <label>Reference Number (Optional)</label>
+          <input type="text" placeholder="e.g. TXN12345678" className="input-field" value={paymentFormData.referenceNumber} onChange={e => setPaymentFormData({...paymentFormData, referenceNumber: e.target.value})} />
+        </div>
+        <div className="input-group">
+          <label>Notes (Optional)</label>
+          <textarea className="input-field" placeholder="Any payment remarks..." rows={2} value={paymentFormData.notes} onChange={e => setPaymentFormData({...paymentFormData, notes: e.target.value})} />
         </div>
       </Modal>
     </div>

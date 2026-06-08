@@ -5,10 +5,11 @@ export async function GET() {
   try {
     const supabase = getDB();
 
-    // Fetch all prescriptions and treatments in parallel
+    // Fetch prescriptions, treatments, and payments in parallel
     const [
       { data: prescriptions, error: rxError },
-      { data: treatments, error: txError }
+      { data: treatments, error: txError },
+      { data: payments }
     ] = await Promise.all([
       supabase
         .from('prescriptions')
@@ -17,7 +18,12 @@ export async function GET() {
       supabase
         .from('treatments')
         .select('id, date, cost, surgery_fee, patient_id, patients(name)')
-        .order('date', { ascending: false })
+        .order('date', { ascending: false }),
+      supabase
+        .from('payments')
+        .select('id, payment_date, amount, payment_method, reference_number, patient_id, patients(name)')
+        .order('payment_date', { ascending: false })
+        .then(res => res.error ? { data: [] } : res)
     ]);
 
     if (rxError) throw rxError;
@@ -25,44 +31,62 @@ export async function GET() {
 
     const rxRows = prescriptions || [];
     const txRows = treatments || [];
+    const payRows = payments || [];
 
     const today = new Date().toISOString().split('T')[0];
     const currentMonth = today.substring(0, 7); // YYYY-MM
+    const currentYear = today.substring(0, 4);   // YYYY
 
-    let todayRevenue = 0;
-    let monthlyRevenue = 0;
-    let totalRevenue = 0;
+    // 1. Calculate Billed Revenue (treatments + prescriptions)
+    let todayBilled = 0;
+    let monthlyBilled = 0;
+    let yearlyBilled = 0;
+    let totalBilled = 0;
 
-    // Monthly buckets for trend chart (last 12 months)
-    const monthlyBuckets = {};
+    const processBilledRecord = (date, amt) => {
+      totalBilled += amt;
+      if (date === today) todayBilled += amt;
+      if (date && date.substring(0, 7) === currentMonth) monthlyBilled += amt;
+      if (date && date.substring(0, 4) === currentYear) yearlyBilled += amt;
+    };
 
-    const processRecord = (date, amt) => {
-      totalRevenue += amt;
+    rxRows.forEach((rx) => {
+      processBilledRecord(rx.date, parseFloat(rx.total_amount) || 0);
+    });
+    txRows.forEach((tx) => {
+      processBilledRecord(tx.date, parseFloat(tx.cost) || 0);
+    });
 
-      if (date === today) {
-        todayRevenue += amt;
-      }
+    // 2. Calculate Collected Revenue (payments)
+    let todayCollected = 0;
+    let monthlyCollected = 0;
+    let yearlyCollected = 0;
+    let totalCollected = 0;
 
-      if (date && date.substring(0, 7) === currentMonth) {
-        monthlyRevenue += amt;
-      }
+    const monthlyBuckets = {}; // for monthly trend chart
 
-      // Build monthly trend
+    payRows.forEach((p) => {
+      const amt = parseFloat(p.amount) || 0;
+      const date = p.payment_date;
+
+      totalCollected += amt;
+      if (date === today) todayCollected += amt;
+      if (date && date.substring(0, 7) === currentMonth) monthlyCollected += amt;
+      if (date && date.substring(0, 4) === currentYear) yearlyCollected += amt;
+
       const monthKey = date ? date.substring(0, 7) : 'unknown';
       if (monthKey !== 'unknown') {
         monthlyBuckets[monthKey] = (monthlyBuckets[monthKey] || 0) + amt;
       }
-    };
-
-    rxRows.forEach((rx) => {
-      processRecord(rx.date, parseFloat(rx.total_amount) || 0);
     });
 
-    txRows.forEach((tx) => {
-      processRecord(tx.date, parseFloat(tx.cost) || 0);
-    });
+    // 3. Calculate Outstanding Revenue (Billed - Collected)
+    const todayOutstanding = Math.max(0, todayBilled - todayCollected);
+    const monthlyOutstanding = Math.max(0, monthlyBilled - monthlyCollected);
+    const yearlyOutstanding = Math.max(0, yearlyBilled - yearlyCollected);
+    const totalOutstanding = Math.max(0, totalBilled - totalCollected);
 
-    // Build sorted monthly trend (last 12 months)
+    // 4. Monthly trend chart - Collected Cash (last 12 months)
     const monthLabels = [];
     const now = new Date();
     for (let i = 11; i >= 0; i--) {
@@ -77,33 +101,47 @@ export async function GET() {
       revenue: monthlyBuckets[key] || 0,
     }));
 
-    // Build payment lists and sort
-    const rxPayments = rxRows.map((rx) => ({
-      date: rx.date,
-      patientName: rx.patients?.name || 'Unknown',
-      amount: parseFloat(rx.total_amount) || 0,
-      doctorFee: parseFloat(rx.surgeon_fee) || 0,
-    }));
-
-    const txPayments = txRows.map((tx) => ({
-      date: tx.date,
-      patientName: tx.patients?.name || 'Unknown',
-      amount: parseFloat(tx.cost) || 0,
-      doctorFee: parseFloat(tx.surgery_fee) || 0,
-    }));
-
-    const combinedPayments = [...rxPayments, ...txPayments].sort((a, b) => {
-      const da = a.date || '';
-      const db = b.date || '';
-      return db.localeCompare(da);
-    });
-
-    const recentPayments = combinedPayments.slice(0, 20);
+    // 5. Recent Payments List (actual payments if any, otherwise fallback to prescriptions)
+    let recentPayments = [];
+    if (payRows.length > 0) {
+      recentPayments = payRows.slice(0, 20).map((p) => ({
+        date: p.payment_date,
+        patientName: p.patients?.name || 'Unknown',
+        amount: parseFloat(p.amount) || 0,
+        paymentMethod: p.payment_method,
+        referenceNumber: p.reference_number || 'N/A'
+      }));
+    } else {
+      // Fallback for legacy database visual
+      recentPayments = rxRows.slice(0, 20).map((rx) => ({
+        date: rx.date,
+        patientName: rx.patients?.name || 'Unknown',
+        amount: parseFloat(rx.total_amount) || 0,
+        paymentMethod: 'Bill generated',
+        referenceNumber: 'Legacy'
+      }));
+    }
 
     return NextResponse.json({
-      todayRevenue,
-      monthlyRevenue,
-      totalRevenue,
+      // Legacy compatibility keys
+      todayRevenue: todayCollected,
+      monthlyRevenue: monthlyCollected,
+      totalRevenue: totalCollected,
+      
+      // New splits
+      todayBilled,
+      todayCollected,
+      todayOutstanding,
+      monthlyBilled,
+      monthlyCollected,
+      monthlyOutstanding,
+      yearlyBilled,
+      yearlyCollected,
+      yearlyOutstanding,
+      totalBilled,
+      totalCollected,
+      totalOutstanding,
+      
       monthlyTrend,
       recentPayments,
     });
@@ -114,6 +152,18 @@ export async function GET() {
         todayRevenue: 0,
         monthlyRevenue: 0,
         totalRevenue: 0,
+        todayBilled: 0,
+        todayCollected: 0,
+        todayOutstanding: 0,
+        monthlyBilled: 0,
+        monthlyCollected: 0,
+        monthlyOutstanding: 0,
+        yearlyBilled: 0,
+        yearlyCollected: 0,
+        yearlyOutstanding: 0,
+        totalBilled: 0,
+        totalCollected: 0,
+        totalOutstanding: 0,
         monthlyTrend: [],
         recentPayments: [],
       },

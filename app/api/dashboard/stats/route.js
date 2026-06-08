@@ -62,6 +62,21 @@ export async function GET(request) {
           .from('treatments')
           .select('cost, treatment_fee, surgery_fee, consultation_fee')
       )
+      // 8. Payments: today (collected)
+      queries.push(
+        supabase
+          .from('payments')
+          .select('amount')
+          .eq('payment_date', today)
+          .then(res => res.error ? { data: [] } : res)
+      )
+      // 9. Payments: total (collected)
+      queries.push(
+        supabase
+          .from('payments')
+          .select('amount')
+          .then(res => res.error ? { data: [] } : res)
+      )
     }
 
     const results = await Promise.all(queries)
@@ -93,18 +108,24 @@ export async function GET(request) {
     })
 
     // Revenue (admin only)
-    let revenueDetails = { total: 0, treatment: 0, surgery: 0 }
-    let todayRevenue = 0
+    let revenueDetails = { total: 0, treatment: 0, surgery: 0, collected: 0, outstanding: 0 }
+    let todayRevenue = 0 // represents today's collected payments
+    let todayBilledRevenue = 0 // today's billed treatments
 
     if (isAdmin && results[3] && results[4] && results[5] && results[6]) {
       const todayRx = results[3].data || []
       const allRx = results[4].data || []
       const todayTx = results[5].data || []
       const allTx = results[6].data || []
+      const todayPayments = results[7]?.data || []
+      const allPayments = results[8]?.data || []
 
       const todayRxRev = todayRx.reduce((sum, r) => sum + (parseFloat(r.total_amount) || 0), 0)
       const todayTxRev = todayTx.reduce((sum, t) => sum + (parseFloat(t.cost) || 0), 0)
-      todayRevenue = todayRxRev + todayTxRev
+      todayBilledRevenue = todayRxRev + todayTxRev
+      
+      // Today's collected revenue from actual payments
+      todayRevenue = todayPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
 
       let totalRev = 0, treatmentRev = 0, surgeryRev = 0
       
@@ -127,7 +148,18 @@ export async function GET(request) {
         treatmentRev += (tFee + cFee)
       }
 
-      revenueDetails = { total: totalRev, treatment: treatmentRev, surgery: surgeryRev }
+      const totalCollected = allPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+      const outstandingRevenue = Math.max(0, totalRev - totalCollected)
+
+      revenueDetails = {
+        total: totalRev,
+        treatment: treatmentRev,
+        surgery: surgeryRev,
+        collected: totalCollected,
+        outstanding: outstandingRevenue,
+        todayBilled: todayBilledRevenue,
+        todayCollected: todayRevenue
+      }
     }
 
     return NextResponse.json({

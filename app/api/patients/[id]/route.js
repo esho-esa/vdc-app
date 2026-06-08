@@ -38,7 +38,14 @@ export async function GET(request, { params }) {
       .eq('patient_id', id)
       .order('date', { ascending: false });
 
-    return NextResponse.json({ ...patientData, appointments, treatments, prescriptions });
+    const { data: payments } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('patient_id', id)
+      .order('payment_date', { ascending: false })
+      .then(res => res.error ? { data: [] } : res);
+
+    return NextResponse.json({ ...patientData, appointments, treatments, prescriptions, payments });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

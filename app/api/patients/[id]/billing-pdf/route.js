@@ -40,6 +40,22 @@ export async function GET(request, { params }) {
 
     if (txError) throw txError;
 
+    // Fetch payments (with same date filters if applied)
+    let payQuery = supabase
+      .from('payments')
+      .select('*')
+      .eq('patient_id', id);
+    
+    if (startDate) payQuery = payQuery.gte('payment_date', startDate);
+    if (endDate) payQuery = payQuery.lte('payment_date', endDate);
+
+    const { data: payments } = await payQuery;
+
+    // Calculate billing summary metrics
+    const totalTxBilled = (treatments || []).reduce((sum, t) => sum + (parseFloat(t.cost) || 0), 0);
+    const totalPaymentsPaid = (payments || []).reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const outstandingBalance = Math.max(0, totalTxBilled - totalPaymentsPaid);
+
     // Fetch clinic settings
     const { data: settings } = await supabase
       .from('settings')
@@ -51,6 +67,8 @@ export async function GET(request, { params }) {
     const pdfBuffer = await generateBillingReportPDF({
       patient,
       treatments: treatments || [],
+      totalPaid: totalPaymentsPaid,
+      outstandingBalance: outstandingBalance,
       startDate,
       endDate,
       dentist,

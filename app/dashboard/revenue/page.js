@@ -138,36 +138,99 @@ export default function RevenueDashboard() {
       {/* Stat Cards */}
       <div className="stats-grid" style={{ marginBottom: 'var(--space-lg)', gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="glass-card stat-card">
-          <div className="stat-icon green">📅</div>
+          <div className="stat-icon purple">💰</div>
           <div className="stat-info">
-            <div className="stat-value">₹{data.todayRevenue.toLocaleString()}</div>
-            <div className="stat-label">Today's Revenue</div>
-            <div className="stat-change positive">↑ Live</div>
-          </div>
-        </div>
-
-        <div className="glass-card stat-card">
-          <div className="stat-icon blue">📊</div>
-          <div className="stat-info">
-            <div className="stat-value">₹{data.monthlyRevenue.toLocaleString()}</div>
-            <div className="stat-label">Monthly Revenue</div>
-            <div className="stat-change positive">↑ This month</div>
-          </div>
-        </div>
-
-        <div className="glass-card stat-card">
-          <div className="stat-icon purple">💎</div>
-          <div className="stat-info">
-            <div className="stat-value">₹{data.totalRevenue.toLocaleString()}</div>
-            <div className="stat-label">Total Revenue</div>
+            <div className="stat-value">₹{(data.totalBilled || 0).toLocaleString()}</div>
+            <div className="stat-label">Total Billed Revenue</div>
             <div className="stat-change positive">↑ All time</div>
+          </div>
+        </div>
+
+        <div className="glass-card stat-card">
+          <div className="stat-icon green">💵</div>
+          <div className="stat-info">
+            <div className="stat-value" style={{ color: 'var(--color-success)' }}>₹{(data.totalCollected || 0).toLocaleString()}</div>
+            <div className="stat-label">Collected Cash Revenue</div>
+            <div className="stat-change positive">↑ Cash flow</div>
+          </div>
+        </div>
+
+        <div className="glass-card stat-card">
+          <div className="stat-icon orange">⚖️</div>
+          <div className="stat-info">
+            <div className="stat-value" style={{ color: (data.totalOutstanding || 0) > 0 ? 'var(--color-warning)' : 'var(--color-success)' }}>₹{(data.totalOutstanding || 0).toLocaleString()}</div>
+            <div className="stat-label">Outstanding Balance</div>
+            <div className="stat-change negative">Pending bills</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Financial Summary Breakdown */}
+      <div className="glass-card-flat" style={{ marginBottom: 'var(--space-lg)' }}>
+        <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Financial Summary Breakdown</h2>
+        <div className="grid-3" style={{ gap: '16px' }}>
+          {/* Current Month */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '12px', color: 'var(--color-accent)' }}>Current Month</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.9rem' }}>
+              <div className="flex-between">
+                <span style={{ color: 'var(--color-text-secondary)' }}>Total Billed:</span>
+                <span style={{ fontWeight: 600 }}>₹{(data.monthlyBilled || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex-between">
+                <span style={{ color: 'var(--color-text-secondary)' }}>Collected:</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-success)' }}>₹{(data.monthlyCollected || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '8px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Outstanding:</span>
+                <span style={{ fontWeight: 700, color: (data.monthlyOutstanding || 0) > 0 ? 'var(--color-warning)' : 'var(--color-text-primary)' }}>₹{(data.monthlyOutstanding || 0).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Current Year */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '12px', color: 'var(--color-accent)' }}>Current Year</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.9rem' }}>
+              <div className="flex-between">
+                <span style={{ color: 'var(--color-text-secondary)' }}>Total Billed:</span>
+                <span style={{ fontWeight: 600 }}>₹{(data.yearlyBilled || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex-between">
+                <span style={{ color: 'var(--color-text-secondary)' }}>Collected:</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-success)' }}>₹{(data.yearlyCollected || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '8px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Outstanding:</span>
+                <span style={{ fontWeight: 700, color: (data.yearlyOutstanding || 0) > 0 ? 'var(--color-warning)' : 'var(--color-text-primary)' }}>₹{(data.yearlyOutstanding || 0).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* All Time */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '12px', color: 'var(--color-accent)' }}>All Time</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.9rem' }}>
+              <div className="flex-between">
+                <span style={{ color: 'var(--color-text-secondary)' }}>Total Billed:</span>
+                <span style={{ fontWeight: 600 }}>₹{(data.totalBilled || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex-between">
+                <span style={{ color: 'var(--color-text-secondary)' }}>Collected:</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-success)' }}>₹{(data.totalCollected || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '8px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Outstanding:</span>
+                <span style={{ fontWeight: 700, color: (data.totalOutstanding || 0) > 0 ? 'var(--color-warning)' : 'var(--color-text-primary)' }}>₹{(data.totalOutstanding || 0).toLocaleString()}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Revenue Chart */}
       <div className="glass-card-flat" style={{ marginBottom: 'var(--space-lg)' }}>
-        <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Monthly Revenue Trend</h2>
+        <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Monthly Collected Cash Trend</h2>
         <div style={{ width: '100%', height: '300px', position: 'relative' }}>
           <canvas
             ref={chartRef}
@@ -178,7 +241,7 @@ export default function RevenueDashboard() {
 
       {/* Recent Payments Table */}
       <div className="glass-card-flat">
-        <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Recent Payments</h2>
+        <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Recent Payments & Receipts</h2>
         {data.recentPayments.length > 0 ? (
           <div className="table-container">
             <table className="data-table">
@@ -186,8 +249,9 @@ export default function RevenueDashboard() {
                 <tr>
                   <th>Date</th>
                   <th>Patient Name</th>
-                  <th>Amount</th>
-                  <th>Doctor Fee</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                  <th>Payment Method</th>
+                  <th>Reference Number</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,11 +259,16 @@ export default function RevenueDashboard() {
                   <tr key={i}>
                     <td style={{ fontWeight: 500 }}>{p.date}</td>
                     <td>{p.patientName}</td>
-                    <td style={{ fontWeight: 600, color: 'var(--color-success)' }}>
+                    <td style={{ fontWeight: 600, color: 'var(--color-success)', textAlign: 'right' }}>
                       ₹{p.amount.toLocaleString()}
                     </td>
-                    <td style={{ color: 'var(--color-accent)' }}>
-                      ₹{p.doctorFee.toLocaleString()}
+                    <td>
+                      <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>
+                        {p.paymentMethod}
+                      </span>
+                    </td>
+                    <td style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>
+                      {p.referenceNumber}
                     </td>
                   </tr>
                 ))}
