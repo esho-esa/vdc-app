@@ -39,6 +39,11 @@ export default function PatientProfile({ params }) {
   const [medicalNotesText, setMedicalNotesText] = useState('');
   const [isNotesSaving, setIsNotesSaving] = useState(false);
 
+  // AR states
+  const [arActiveTab, setArActiveTab] = useState('summary');
+  const [dueDateInput, setDueDateInput] = useState('');
+  const [isSavingDueDate, setIsSavingDueDate] = useState(false);
+
   // Payment states
   const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false);
   const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
@@ -95,6 +100,7 @@ export default function PatientProfile({ params }) {
             medicalHistory: d.medicalHistory || ''
           });
           setMedicalNotesText(d.medicalHistory || '');
+          setDueDateInput(d.due_date || '');
         }
         setLoading(false);
       })
@@ -123,6 +129,65 @@ export default function PatientProfile({ params }) {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function handleSaveDueDate() {
+    if (!dueDateInput) {
+      alert('Please select a valid date.');
+      return;
+    }
+    setIsSavingDueDate(true);
+    try {
+      const res = await fetch(`/api/patients/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editFormData,
+          dueDate: dueDateInput || null
+        })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setData({ ...data, ...updated });
+        alert('Due date updated successfully');
+      } else {
+        alert('Failed to update due date');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error saving due date');
+    } finally {
+      setIsSavingDueDate(false);
+    }
+  }
+
+  function handleExportCSVStatement() {
+    const ledger = buildLedger();
+    const headers = ['Date', 'Transaction Detail', 'Type', 'Charge (Dr)', 'Credit (Cr)', 'Running Balance (INR)'];
+    const rows = ledger.map(item => [
+      item.date,
+      item.description,
+      item.type === 'Charge' ? 'Billed' : 'Payment',
+      item.type === 'Charge' ? item.amount.toFixed(2) : '0.00',
+      item.type === 'Credit' ? item.amount.toFixed(2) : '0.00',
+      item.balance.toFixed(2)
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.map(val => `"${val.replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const filename = `statement-${patient.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.csv`;
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   async function handleAddPrescription() {
@@ -476,6 +541,112 @@ export default function PatientProfile({ params }) {
   const pendingBalance = Math.max(0, totalSpent - totalPaid);
   const avatar = patient.name ? patient.name.substring(0, 2).toUpperCase() : 'U';
 
+  // Accounts Receivable status computations
+  const todayStr = new Date().toISOString().split('T')[0];
+  let paymentStatus = 'PAID';
+  if (totalSpent > 0) {
+    if (totalPaid === 0) {
+      paymentStatus = 'UNPAID';
+    } else if (totalPaid < totalSpent) {
+      paymentStatus = 'PARTIALLY PAID';
+    }
+  }
+  if (pendingBalance > 0.01 && patient.due_date && todayStr > patient.due_date) {
+    paymentStatus = 'OVERDUE';
+  }
+
+  const getDueStatus = () => {
+    if (!patient.due_date) return { text: 'No due date set', type: 'info' };
+    if (pendingBalance <= 0.01) return { text: 'Paid in full', type: 'success' };
+    
+    const today = new Date(todayStr);
+    const due = new Date(patient.due_date);
+    const timeDiff = due.getTime() - today.getTime();
+    const diffDays = Math.ceil(timeDiff / (1000 * 3600 * 24));
+    
+    if (diffDays < 0) {
+      return { text: `Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'}`, type: 'danger', days: diffDays };
+    } else if (diffDays === 0) {
+      return { text: 'Due today', type: 'warning', days: 0 };
+    } else {
+      return { text: `${diffDays} day${diffDays === 1 ? '' : 's'} remaining`, type: 'success', days: diffDays };
+    }
+  };
+  const dueStatus = getDueStatus();
+
+  let statusBadgeBg = 'rgba(16, 185, 129, 0.15)';
+  let statusBadgeColor = '#10b981';
+  if (paymentStatus === 'OVERDUE') {
+    statusBadgeBg = 'rgba(239, 68, 68, 0.15)';
+    statusBadgeColor = '#ef4444';
+  } else if (paymentStatus === 'UNPAID') {
+    statusBadgeBg = 'rgba(245, 158, 11, 0.15)';
+    statusBadgeColor = '#f59e0b';
+  } else if (paymentStatus === 'PARTIALLY PAID') {
+    statusBadgeBg = 'rgba(175, 82, 222, 0.15)';
+    statusBadgeColor = '#af52de';
+  }
+
+  const buildLedger = () => {
+    const ledgerItems = [];
+
+    // Treatments (Charges)
+    (patient.treatments || []).forEach((t) => {
+      let treatmentName = t.description;
+      try {
+        if (t.description && t.description.startsWith('{')) {
+          const parsed = JSON.parse(t.description);
+          treatmentName = parsed.name || parsed.description;
+        }
+      } catch (e) { }
+
+      ledgerItems.push({
+        date: t.date,
+        id: t.id,
+        description: treatmentName,
+        type: 'Charge',
+        amount: parseFloat(t.cost) || 0
+      });
+    });
+
+    // Payments (Credits)
+    (patient.payments || []).forEach((p) => {
+      ledgerItems.push({
+        date: p.payment_date,
+        id: p.id,
+        description: `Paid via ${p.payment_method}${p.reference_number ? ' (Ref: ' + p.reference_number + ')' : ''}`,
+        type: 'Credit',
+        amount: parseFloat(p.amount) || 0
+      });
+    });
+
+    // Sort chronologically (date ascending, charges before credits)
+    ledgerItems.sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      
+      if (a.type !== b.type) {
+        return a.type === 'Charge' ? -1 : 1;
+      }
+      return a.id.localeCompare(b.id);
+    });
+
+    // Calculate running balance
+    let runningBalance = 0;
+    ledgerItems.forEach((item) => {
+      if (item.type === 'Charge') {
+        runningBalance += item.amount;
+      } else {
+        runningBalance -= item.amount;
+      }
+      item.balance = runningBalance;
+    });
+
+    return ledgerItems;
+  };
+
+  const patientLedger = buildLedger();
+
   const totalTreatmentFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.treatmentFee) || 0), 0);
   const totalSurgeryFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.surgeryFee) || 0), 0);
   const totalConsultationFee = treatmentsList.reduce((sum, item) => sum + (parseFloat(item.consultationFee) || 0), 0);
@@ -589,11 +760,9 @@ export default function PatientProfile({ params }) {
                 </div>
                 <div className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                   <span>Pending Balance</span>
-                  {pendingBalance === 0 ? (
-                    <span className="badge" style={{ fontSize: '0.625rem', padding: '2px 6px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>PAID IN FULL</span>
-                  ) : (
-                    <span className="badge" style={{ fontSize: '0.625rem', padding: '2px 6px', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>PENDING</span>
-                  )}
+                  <span className="badge" style={{ fontSize: '0.625rem', padding: '2px 6px', background: statusBadgeBg, color: statusBadgeColor, border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>
+                    {paymentStatus}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1169,127 +1338,399 @@ export default function PatientProfile({ params }) {
       <Modal 
         isOpen={showBillingModal} 
         onClose={() => setShowBillingModal(false)} 
-        title="Patient Billing Summary" 
+        title="Patient Accounts Receivable & Ledger" 
         footer={
           <div className="flex-between" style={{ width: '100%' }}>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <a href={`${billingPdfUrl}&download=true`} className="btn btn-primary btn-sm">⬇️ Download PDF</a>
-              <a href={billingPdfUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">🖨️ Print Report</a>
+              <button className="btn btn-primary btn-sm" onClick={() => window.open(`/api/patients/${id}/statement-pdf`, '_blank')}>⬇️ PDF Statement</button>
+              <button className="btn btn-secondary btn-sm" onClick={handleExportCSVStatement}>⬇️ CSV Statement</button>
             </div>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowBillingModal(false)}>Close</button>
           </div>
         }
       >
-        {/* Filters */}
-        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', marginBottom: '16px' }}>
-          <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '12px', color: 'var(--color-accent)' }}>Filter Transactions</h4>
-          <div className="grid-3">
-            <div className="input-group">
-              <label style={{ fontSize: '0.75rem' }}>Start Date</label>
-              <input type="date" className="input-field" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }} />
-            </div>
-            <div className="input-group">
-              <label style={{ fontSize: '0.75rem' }}>End Date</label>
-              <input type="date" className="input-field" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }} />
-            </div>
-            <div className="input-group">
-              <label style={{ fontSize: '0.75rem' }}>Dentist</label>
-              <select className="input-field" value={filterDentist} onChange={e => setFilterDentist(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }}>
-                <option value="">All Dentists</option>
-                {uniqueDentists.map((d, idx) => (
-                  <option key={idx} value={d}>{d}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {(filterStartDate || filterEndDate || filterDentist) && (
-            <button 
-              className="btn btn-ghost btn-sm" 
-              onClick={() => { setFilterStartDate(''); setFilterEndDate(''); setFilterDentist(''); }} 
-              style={{ marginTop: '8px', padding: '4px 0', fontSize: '0.8rem' }}
-            >
-              Reset Filters
-            </button>
-          )}
+        {/* Tab Selection */}
+        <div className="tab-container" style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', marginBottom: '16px', gap: '8px' }}>
+          <button 
+            className={`tab-btn ${arActiveTab === 'summary' ? 'active' : ''}`}
+            onClick={() => setArActiveTab('summary')}
+            style={{
+              padding: '10px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: arActiveTab === 'summary' ? '2px solid var(--color-accent)' : '2px solid transparent',
+              color: arActiveTab === 'summary' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              fontWeight: arActiveTab === 'summary' ? '600' : '400',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            AR Summary
+          </button>
+          <button 
+            className={`tab-btn ${arActiveTab === 'ledger' ? 'active' : ''}`}
+            onClick={() => setArActiveTab('ledger')}
+            style={{
+              padding: '10px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: arActiveTab === 'ledger' ? '2px solid var(--color-accent)' : '2px solid transparent',
+              color: arActiveTab === 'ledger' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              fontWeight: arActiveTab === 'ledger' ? '600' : '400',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            Patient Ledger
+          </button>
+          <button 
+            className={`tab-btn ${arActiveTab === 'payments' ? 'active' : ''}`}
+            onClick={() => setArActiveTab('payments')}
+            style={{
+              padding: '10px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: arActiveTab === 'payments' ? '2px solid var(--color-accent)' : '2px solid transparent',
+              color: arActiveTab === 'payments' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              fontWeight: arActiveTab === 'payments' ? '600' : '400',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            Payment History
+          </button>
         </div>
 
-        {/* Aggregate Billing Summary */}
-        <div className="stats-grid" style={{ gap: '10px', marginBottom: '16px' }}>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Billed Amount</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: '4px' }}>₹{filteredGrandTotal}</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Payments Received</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-success)', marginTop: '4px' }}>₹{filteredPayments}</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Outstanding Balance</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: filteredOutstanding > 0 ? 'var(--color-danger)' : 'var(--color-text-primary)', marginTop: '4px' }}>₹{filteredOutstanding}</div>
-          </div>
-        </div>
+        {/* Tab 1: AR Summary */}
+        {arActiveTab === 'summary' && (
+          <div>
+            {/* AR & Due Date Control */}
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', marginBottom: '16px' }}>
+              <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '12px', color: 'var(--color-accent)' }}>AR & Due Date Control</h4>
+              <div className="grid-2" style={{ gap: '16px' }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Payment Due Date</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      type="date" 
+                      className="input-field" 
+                      value={dueDateInput} 
+                      onChange={e => setDueDateInput(e.target.value)} 
+                      style={{ padding: '8px 12px', fontSize: '0.85rem', flex: 1 }} 
+                    />
+                    <button 
+                      className="btn btn-secondary btn-sm" 
+                      onClick={handleSaveDueDate} 
+                      disabled={isSavingDueDate}
+                      style={{ height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      {isSavingDueDate ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>Account Status & Days</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span className="badge" style={{ 
+                      fontSize: '0.75rem', 
+                      padding: '4px 10px', 
+                      background: statusBadgeBg, 
+                      color: statusBadgeColor, 
+                      border: 'none', 
+                      borderRadius: '6px', 
+                      fontWeight: 'bold' 
+                    }}>
+                      {paymentStatus}
+                    </span>
+                    <span style={{ 
+                      fontSize: '0.85rem', 
+                      fontWeight: '500',
+                      color: dueStatus.type === 'danger' ? 'var(--color-danger)' : 
+                             dueStatus.type === 'warning' ? 'var(--color-warning)' : 'var(--color-success)'
+                    }}>
+                      {dueStatus.text}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-        {/* Detailed Breakdown Grid */}
-        <div className="stats-grid" style={{ gap: '10px', marginBottom: '16px' }}>
-          <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Treatment Fees</div>
-            <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalTreatment}</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Surgery Fees</div>
-            <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalSurgery}</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Consultation Fees</div>
-            <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalConsultation}</div>
-          </div>
-        </div>
+            {/* Filters */}
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', marginBottom: '16px' }}>
+              <div className="flex-between" style={{ marginBottom: '12px' }}>
+                <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-accent)', margin: 0 }}>Filter Transactions</h4>
+                <a href={billingPdfUrl} target="_blank" rel="noreferrer" className="badge" style={{ cursor: 'pointer', textDecoration: 'none', border: 'none', background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)' }}>
+                  🖨️ Print Filtered Report
+                </a>
+              </div>
+              <div className="grid-3">
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.75rem' }}>Start Date</label>
+                  <input type="date" className="input-field" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }} />
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.75rem' }}>End Date</label>
+                  <input type="date" className="input-field" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }} />
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.75rem' }}>Dentist</label>
+                  <select className="input-field" value={filterDentist} onChange={e => setFilterDentist(e.target.value)} style={{ padding: '8px 12px', fontSize: '0.85rem' }}>
+                    <option value="">All Dentists</option>
+                    {uniqueDentists.map((d, idx) => (
+                      <option key={idx} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {(filterStartDate || filterEndDate || filterDentist) && (
+                <button 
+                  className="btn btn-ghost btn-sm" 
+                  onClick={() => { setFilterStartDate(''); setFilterEndDate(''); setFilterDentist(''); }} 
+                  style={{ marginTop: '8px', padding: '4px 0', fontSize: '0.8rem' }}
+                >
+                  Reset Filters
+                </button>
+              )}
+            </div>
 
-        {/* Breakdown Table */}
-        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '8px', color: 'var(--color-text-primary)' }}>Treatment Wise Breakdown</h4>
-        {filteredTreatments.length > 0 ? (
-          <div className="table-container" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-            <table className="data-table" style={{ fontSize: '0.8125rem' }}>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Treatment</th>
-                  <th>Dentist</th>
-                  <th style={{ textAlign: 'right' }}>Treat (₹)</th>
-                  <th style={{ textAlign: 'right' }}>Surg (₹)</th>
-                  <th style={{ textAlign: 'right' }}>Cons (₹)</th>
-                  <th style={{ textAlign: 'right' }}>Total (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTreatments.map((t) => {
-                  let parsed = { name: t.description };
-                  try {
-                    if (t.description && t.description.startsWith('{')) {
-                      parsed = JSON.parse(t.description);
-                    }
-                  } catch(e) {}
-                  
-                  const name = parsed.name || parsed.description || t.description;
+            {/* Aggregate Billing Summary */}
+            <div className="stats-grid" style={{ gap: '10px', marginBottom: '16px' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Billed Amount</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: '4px' }}>₹{filteredGrandTotal}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Payments Received</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-success)', marginTop: '4px' }}>₹{filteredPayments}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-secondary)', fontWeight: 550, textTransform: 'uppercase' }}>Outstanding Balance</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: filteredOutstanding > 0 ? 'var(--color-danger)' : 'var(--color-text-primary)', marginTop: '4px' }}>₹{filteredOutstanding}</div>
+              </div>
+            </div>
 
-                  return (
-                    <tr key={t.id}>
-                      <td style={{ fontWeight: 500 }}>{t.date}</td>
-                      <td>{name}</td>
-                      <td>{t.dentist}</td>
-                      <td style={{ textAlign: 'right' }}>{(t.treatment_fee || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ textAlign: 'right' }}>{(t.surgery_fee || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ textAlign: 'right' }}>{(t.consultation_fee || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(t.cost || 0).toLocaleString('en-IN')}</td>
+            {/* Detailed Breakdown Grid */}
+            <div className="stats-grid" style={{ gap: '10px', marginBottom: '16px' }}>
+              <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Treatment Fees</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalTreatment}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Surgery Fees</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalSurgery}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>Consultation Fees</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 650, marginTop: '2px' }}>₹{filteredTotalConsultation}</div>
+              </div>
+            </div>
+
+            {/* Breakdown Table */}
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '8px', color: 'var(--color-text-primary)' }}>Treatment Wise Breakdown</h4>
+            {filteredTreatments.length > 0 ? (
+              <div className="table-container" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                <table className="data-table" style={{ fontSize: '0.8125rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Treatment</th>
+                      <th>Dentist</th>
+                      <th style={{ textAlign: 'right' }}>Treat (₹)</th>
+                      <th style={{ textAlign: 'right' }}>Surg (₹)</th>
+                      <th style={{ textAlign: 'right' }}>Cons (₹)</th>
+                      <th style={{ textAlign: 'right' }}>Total (₹)</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {filteredTreatments.map((t) => {
+                      let parsed = { name: t.description };
+                      try {
+                        if (t.description && t.description.startsWith('{')) {
+                          parsed = JSON.parse(t.description);
+                        }
+                      } catch(e) {}
+                      
+                      const name = parsed.name || parsed.description || t.description;
+
+                      return (
+                        <tr key={t.id}>
+                          <td style={{ fontWeight: 500 }}>{t.date}</td>
+                          <td>{name}</td>
+                          <td>{t.dentist}</td>
+                          <td style={{ textAlign: 'right' }}>{(t.treatment_fee || 0).toLocaleString('en-IN')}</td>
+                          <td style={{ textAlign: 'right' }}>{(t.surgery_fee || 0).toLocaleString('en-IN')}</td>
+                          <td style={{ textAlign: 'right' }}>{(t.consultation_fee || 0).toLocaleString('en-IN')}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{(t.cost || 0).toLocaleString('en-IN')}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                No billing records found matching active filters.
+              </div>
+            )}
           </div>
-        ) : (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-            No billing records found matching active filters.
+        )}
+
+        {/* Tab 2: Patient Ledger */}
+        {arActiveTab === 'ledger' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-accent)', margin: 0 }}>Chronological Ledger</h4>
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>Shows charges, credits, and running balance</span>
+            </div>
+
+            {patientLedger.length > 0 ? (
+              <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                <table className="data-table" style={{ fontSize: '0.8125rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Transaction Detail</th>
+                      <th>Type</th>
+                      <th style={{ textAlign: 'right' }}>Charge (Dr)</th>
+                      <th style={{ textAlign: 'right' }}>Credit (Cr)</th>
+                      <th style={{ textAlign: 'right' }}>Balance (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...patientLedger].reverse().map((item, idx) => (
+                      <tr key={`${item.type}-${item.id}-${idx}`}>
+                        <td style={{ fontWeight: 500 }}>{item.date}</td>
+                        <td>{item.description}</td>
+                        <td>
+                          <span className="badge" style={{ 
+                            background: item.type === 'Charge' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
+                            color: item.type === 'Charge' ? 'var(--color-accent)' : 'var(--color-success)',
+                            border: 'none',
+                            fontSize: '0.7rem',
+                            padding: '2px 6px',
+                            fontWeight: 'bold'
+                          }}>
+                            {item.type === 'Charge' ? 'Billed' : 'Payment'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {item.type === 'Charge' ? `₹${item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
+                        </td>
+                        <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 500 }}>
+                          {item.type === 'Credit' ? `₹${item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                          ₹{item.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                No ledger transactions found.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: Payment History */}
+        {arActiveTab === 'payments' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-accent)', margin: 0 }}>Payments History</h4>
+              <button className="btn btn-primary btn-sm" onClick={() => {
+                setPaymentFormData({
+                  amount: '',
+                  paymentDate: new Date().toISOString().split('T')[0],
+                  paymentMethod: 'UPI',
+                  referenceNumber: '',
+                  notes: ''
+                });
+                setShowRecordPaymentModal(true);
+              }}>
+                + Record Payment
+              </button>
+            </div>
+
+            {(data.payments || []).length > 0 ? (
+              <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                <table className="data-table" style={{ fontSize: '0.8125rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Method</th>
+                      <th>Reference</th>
+                      <th>Notes</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.payments || []).map((pay) => (
+                      <tr key={pay.id}>
+                        <td style={{ fontWeight: 500 }}>{pay.payment_date}</td>
+                        <td style={{ fontWeight: 600, color: 'var(--color-success)' }}>
+                          ₹{parseFloat(pay.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td>
+                          <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>
+                            {pay.payment_method}
+                          </span>
+                        </td>
+                        <td>{pay.reference_number || '-'}</td>
+                        <td>{pay.notes || '-'}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <a 
+                              href={`/api/patients/${id}/payments/${pay.id}/receipt-pdf`} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="badge" 
+                              style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--color-success)', border: 'none' }}
+                            >
+                              🖨️ Receipt
+                            </a>
+                            <button 
+                              className="badge" 
+                              style={{ cursor: 'pointer', border: 'none', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--color-warning)' }}
+                              onClick={() => {
+                                setSelectedPayment(pay);
+                                setPaymentFormData({
+                                  amount: pay.amount.toString(),
+                                  paymentDate: pay.payment_date,
+                                  paymentMethod: pay.payment_method,
+                                  referenceNumber: pay.reference_number || '',
+                                  notes: pay.notes || ''
+                                });
+                                setShowEditPaymentModal(true);
+                              }}
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button 
+                              className="badge" 
+                              style={{ cursor: 'pointer', border: 'none', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}
+                              onClick={() => handleDeletePayment(pay.id)}
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', background: 'rgba(255,255,255,0.01)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                No payments recorded yet.
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -1359,6 +1800,8 @@ export default function PatientProfile({ params }) {
             <option value="Debit Card">Debit Card</option>
             <option value="Bank Transfer">Bank Transfer</option>
             <option value="Cheque">Cheque</option>
+            <option value="Insurance">Insurance</option>
+            <option value="Other">Other</option>
           </select>
         </div>
         <div className="input-group">
@@ -1407,6 +1850,8 @@ export default function PatientProfile({ params }) {
             <option value="Debit Card">Debit Card</option>
             <option value="Bank Transfer">Bank Transfer</option>
             <option value="Cheque">Cheque</option>
+            <option value="Insurance">Insurance</option>
+            <option value="Other">Other</option>
           </select>
         </div>
         <div className="input-group">

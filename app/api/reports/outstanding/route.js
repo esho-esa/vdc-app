@@ -8,7 +8,7 @@ export async function GET(request) {
     // 1. Fetch active patients
     const { data: patients, error: patientsError } = await supabase
       .from('patients')
-      .select('id, name, phone, email')
+      .select('id, name, phone, email, due_date')
       .eq('is_deleted', 0);
 
     if (patientsError) throw patientsError;
@@ -43,15 +43,27 @@ export async function GET(request) {
     });
 
     // Match with patients and filter outstanding
+    const todayStr = new Date().toISOString().split('T')[0];
     const outstandingPatients = patients
       .map(p => {
         const billing = patientBilling[p.id] || { billed: 0, paid: 0 };
         const pending = Math.max(0, billing.billed - billing.paid);
+        
+        let status = 'PAID';
+        if (billing.billed > 0) {
+          if (billing.paid === 0) status = 'UNPAID';
+          else if (billing.paid < billing.billed) status = 'PARTIALLY PAID';
+        }
+        if (pending > 0.01 && p.due_date && todayStr > p.due_date) {
+          status = 'OVERDUE';
+        }
+
         return {
           ...p,
           totalBilled: billing.billed,
           totalPaid: billing.paid,
-          pending
+          pending,
+          status
         };
       })
       .filter(p => p.pending > 0.01) // ignore negligible dust values

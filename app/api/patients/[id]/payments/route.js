@@ -51,7 +51,7 @@ export async function POST(request, { params }) {
     }
 
     // Validate payment method options
-    const validMethods = ['Cash', 'UPI', 'Credit Card', 'Debit Card', 'Bank Transfer', 'Cheque'];
+    const validMethods = ['Cash', 'UPI', 'Credit Card', 'Debit Card', 'Bank Transfer', 'Cheque', 'Insurance', 'Other'];
     if (!validMethods.includes(paymentMethod)) {
       return NextResponse.json(
         { error: `Invalid payment method. Allowed methods: ${validMethods.join(', ')}` },

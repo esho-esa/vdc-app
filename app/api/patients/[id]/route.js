@@ -65,7 +65,8 @@ export async function PUT(request, { params }) {
         email: body.email,
         age: body.age,
         address: body.address || '',
-        medical_history: body.medicalHistory
+        medical_history: body.medicalHistory,
+        due_date: body.dueDate || body.due_date || null
       })
       .eq('id', id)
       .select();

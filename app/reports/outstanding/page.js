@@ -52,14 +52,16 @@ export default function OutstandingPaymentsReport() {
   const handleExportCSV = () => {
     if (filteredData.length === 0) return;
     
-    const headers = ['Patient Name', 'Phone Number', 'Email', 'Total Billed (INR)', 'Total Paid (INR)', 'Pending Balance (INR)'];
+    const headers = ['Patient Name', 'Phone Number', 'Email', 'Total Billed (INR)', 'Total Paid (INR)', 'Pending Balance (INR)', 'Due Date', 'Status'];
     const rows = filteredData.map((item) => [
       item.name,
       item.phone || 'N/A',
       item.email || 'N/A',
       item.totalBilled.toFixed(2),
       item.totalPaid.toFixed(2),
-      item.pending.toFixed(2)
+      item.pending.toFixed(2),
+      item.due_date || 'None',
+      item.status
     ]);
 
     const csvContent = 
@@ -150,32 +152,55 @@ export default function OutstandingPaymentsReport() {
                   <th style={{ textAlign: 'right' }}>Total Billed (₹)</th>
                   <th style={{ textAlign: 'right' }}>Total Paid (₹)</th>
                   <th style={{ textAlign: 'right' }}>Outstanding Balance (₹)</th>
+                  <th>Due Date</th>
+                  <th style={{ textAlign: 'center' }}>Status</th>
                   <th style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredData.map((p) => (
-                  <tr key={p.id}>
-                    <td style={{ fontWeight: 600 }}>
-                      <Link href={`/patients/${p.id}`} className="patient-link" style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>
-                        {p.name}
-                      </Link>
-                    </td>
-                    <td>{p.phone || 'N/A'}</td>
-                    <td style={{ textAlign: 'right' }}>{p.totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 500 }}>
-                      {p.totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ textAlign: 'right', color: 'var(--color-warning)', fontWeight: 600 }}>
-                      {p.pending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <Link href={`/patients/${p.id}`} className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', textDecoration: 'none', border: 'none', cursor: 'pointer' }}>
-                        👁️ View Profile
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {filteredData.map((p) => {
+                  let badgeBg = 'rgba(59, 130, 246, 0.1)';
+                  let badgeColor = 'var(--color-accent)';
+                  if (p.status === 'OVERDUE') {
+                    badgeBg = 'var(--color-danger-light)';
+                    badgeColor = 'var(--color-danger)';
+                  } else if (p.status === 'UNPAID') {
+                    badgeBg = 'var(--color-warning-light)';
+                    badgeColor = 'var(--color-warning)';
+                  } else if (p.status === 'PARTIALLY PAID') {
+                    badgeBg = 'rgba(175, 82, 222, 0.12)';
+                    badgeColor = 'var(--color-purple)';
+                  }
+
+                  return (
+                    <tr key={p.id}>
+                      <td style={{ fontWeight: 600 }}>
+                        <Link href={`/patients/${p.id}`} className="patient-link" style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>
+                          {p.name}
+                        </Link>
+                      </td>
+                      <td>{p.phone || 'N/A'}</td>
+                      <td style={{ textAlign: 'right' }}>{p.totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 500 }}>
+                        {p.totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ textAlign: 'right', color: 'var(--color-warning)', fontWeight: 600 }}>
+                        {p.pending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td>{p.due_date || 'N/A'}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="badge" style={{ background: badgeBg, color: badgeColor, border: 'none', fontWeight: 'bold' }}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <Link href={`/patients/${p.id}`} className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', textDecoration: 'none', border: 'none', cursor: 'pointer' }}>
+                          👁️ View Profile
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {/* Summary row */}
                 <tr style={{ fontWeight: 700, background: 'rgba(255,255,255,0.02)', borderTop: '2px solid var(--color-border)' }}>
                   <td>TOTALS</td>
@@ -187,6 +212,8 @@ export default function OutstandingPaymentsReport() {
                   <td style={{ textAlign: 'right', color: 'var(--color-warning)' }}>
                     {totalPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
+                  <td>-</td>
+                  <td>-</td>
                   <td>-</td>
                 </tr>
               </tbody>
