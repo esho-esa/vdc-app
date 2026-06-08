@@ -44,6 +44,27 @@ export default function PatientProfile({ params }) {
   const [dueDateInput, setDueDateInput] = useState('');
   const [isSavingDueDate, setIsSavingDueDate] = useState(false);
 
+  // Clinical records states
+  const [activeTab, setActiveTab] = useState('overview');
+  const [records, setRecords] = useState({ photos: [], xrays: [], files: [] });
+  const [recordsLoading, setRecordsLoading] = useState(true);
+  
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadCategory, setUploadCategory] = useState('Before');
+  const [uploadNotes, setUploadNotes] = useState('');
+  const [uploadTreatmentId, setUploadTreatmentId] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  const [previewRecord, setPreviewRecord] = useState(null);
+  const [previewType, setPreviewType] = useState('');
+  const [zoomScale, setZoomScale] = useState(1);
+
+  const [beforeImageId, setBeforeImageId] = useState('');
+  const [afterImageId, setAfterImageId] = useState('');
+  const [sliderPos, setSliderPos] = useState(50);
+  const [galleryFilter, setGalleryFilter] = useState('all');
+
   // Payment states
   const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false);
   const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
@@ -105,7 +126,34 @@ export default function PatientProfile({ params }) {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+
+    fetchRecords();
   }, [id]);
+
+  function fetchRecords() {
+    setRecordsLoading(true);
+    fetch(`/api/patients/${id}/clinical-records`)
+      .then(res => res.json())
+      .then(d => {
+        if (!d.error) {
+          setRecords(d);
+        }
+        setRecordsLoading(false);
+      })
+      .catch(() => setRecordsLoading(false));
+  }
+
+  // Sync comparison sliders selections
+  useEffect(() => {
+    const beforePhotos = records.photos.filter(p => p.category === 'Before');
+    const afterPhotos = records.photos.filter(p => p.category === 'After');
+    if (beforePhotos.length > 0 && !beforeImageId) {
+      setBeforeImageId(beforePhotos[0].id);
+    }
+    if (afterPhotos.length > 0 && !afterImageId) {
+      setAfterImageId(afterPhotos[0].id);
+    }
+  }, [records.photos]);
 
   async function handleSaveProfile() {
     setIsSaving(true);
@@ -188,6 +236,85 @@ export default function PatientProfile({ params }) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  async function handleUploadRecord(e) {
+    e.preventDefault();
+    if (!uploadFile) {
+      setUploadError('Please select a file.');
+      return;
+    }
+    setUploadError('');
+    setIsUploading(true);
+
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('category', uploadCategory);
+    formData.append('notes', uploadNotes);
+    if (uploadTreatmentId) {
+      formData.append('treatmentId', uploadTreatmentId);
+    }
+
+    try {
+      const res = await fetch(`/api/patients/${id}/clinical-records`, {
+        method: 'POST',
+        body: formData
+      });
+      if (res.ok) {
+        const newRecord = await res.json();
+        const isPhoto = ['Before', 'During', 'After'].includes(uploadCategory);
+        const isXRay = uploadCategory === 'X-Ray';
+        
+        if (isPhoto) {
+          setRecords(prev => ({ ...prev, photos: [newRecord, ...prev.photos] }));
+        } else if (isXRay) {
+          setRecords(prev => ({ ...prev, xrays: [newRecord, ...prev.xrays] }));
+        } else {
+          setRecords(prev => ({ ...prev, files: [newRecord, ...prev.files] }));
+        }
+
+        // Reset form
+        setUploadFile(null);
+        setUploadNotes('');
+        setUploadTreatmentId('');
+        const fileInput = document.getElementById('file-upload-input');
+        if (fileInput) fileInput.value = '';
+
+        alert('Record uploaded successfully');
+      } else {
+        const err = await res.json();
+        setUploadError(err.error || 'Failed to upload record.');
+      }
+    } catch (err) {
+      console.error(err);
+      setUploadError('Error uploading record.');
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  async function handleDeleteRecord(recordId, type, filename) {
+    if (!confirm(`Are you sure you want to delete the clinical record "${filename}"?`)) return;
+    try {
+      const res = await fetch(`/api/patients/${id}/clinical-records/${recordId}?type=${type}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        if (type === 'photo') {
+          setRecords(prev => ({ ...prev, photos: prev.photos.filter(r => r.id !== recordId) }));
+        } else if (type === 'xray') {
+          setRecords(prev => ({ ...prev, xrays: prev.xrays.filter(r => r.id !== recordId) }));
+        } else {
+          setRecords(prev => ({ ...prev, files: prev.files.filter(r => r.id !== recordId) }));
+        }
+        alert('Record deleted successfully');
+      } else {
+        alert('Failed to delete record');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error deleting record');
+    }
   }
 
   async function handleAddPrescription() {
@@ -708,37 +835,265 @@ export default function PatientProfile({ params }) {
         </div>
       </div>
 
-      {/* Info Cards Row */}
-      <div className="stats-grid" style={{ marginBottom: 'var(--space-lg)' }}>
-        <div 
-          className="glass-card stat-card clickable" 
-          onClick={() => document.getElementById('appointment-history')?.scrollIntoView({ behavior: 'smooth' })}
-          data-tooltip="Click to view visit history"
-        >
-          <div className="stat-icon blue">📅</div>
-          <div className="stat-info">
-            <div className="stat-value">{patientAppts.length}</div>
-            <div className="stat-label">Total Visits</div>
-          </div>
-        </div>
-        <div 
-          className="glass-card stat-card clickable" 
-          onClick={() => document.getElementById('treatment-history')?.scrollIntoView({ behavior: 'smooth' })}
-          data-tooltip="Click to view treatments"
-        >
-          <div className="stat-icon green">🦷</div>
-          <div className="stat-info">
-            <div className="stat-value">{patientTreatments.length}</div>
-            <div className="stat-label">Treatments</div>
-          </div>
-        </div>
-        {user?.role === 'admin' && (
-          <>
+      {/* Main Page Navigation Tabs */}
+      <div className="glass-card-flat" style={{ display: 'flex', gap: '8px', padding: '6px 12px', marginBottom: 'var(--space-lg)', borderRadius: '12px', overflowX: 'auto' }}>
+        {[
+          { id: 'overview', label: 'Overview', icon: '👤' },
+          { id: 'treatments', label: 'Treatment History', icon: '🦷' },
+          { id: 'billing', label: 'Billing', icon: '💰' },
+          { id: 'prescriptions', label: 'Prescriptions', icon: '💊' },
+          { id: 'photos', label: 'Photos & X-Rays', icon: '📷' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '10px 18px',
+              background: activeTab === tab.id ? 'var(--color-accent)' : 'transparent',
+              color: activeTab === tab.id ? '#fff' : 'var(--color-text-secondary)',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: activeTab === tab.id ? '600' : '500',
+              fontSize: '0.9rem',
+              transition: 'all 0.25s ease',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            <span>{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab 1: Overview */}
+      {activeTab === 'overview' && (
+        <div className="stagger">
+          {/* Info Cards Row */}
+          <div className="stats-grid" style={{ marginBottom: 'var(--space-lg)' }}>
             <div 
               className="glass-card stat-card clickable" 
-              onClick={() => setShowBillingModal(true)}
-              data-tooltip="Click to view billing breakdown"
+              onClick={() => setActiveTab('treatments')}
+              data-tooltip="Click to view visit history"
             >
+              <div className="stat-icon blue">📅</div>
+              <div className="stat-info">
+                <div className="stat-value">{patientAppts.length}</div>
+                <div className="stat-label">Total Visits</div>
+              </div>
+            </div>
+            <div 
+              className="glass-card stat-card clickable" 
+              onClick={() => setActiveTab('treatments')}
+              data-tooltip="Click to view treatments"
+            >
+              <div className="stat-icon green">🦷</div>
+              <div className="stat-info">
+                <div className="stat-value">{patientTreatments.length}</div>
+                <div className="stat-label">Treatments</div>
+              </div>
+            </div>
+            {user?.role === 'admin' && (
+              <>
+                <div 
+                  className="glass-card stat-card clickable" 
+                  onClick={() => setShowBillingModal(true)}
+                  data-tooltip="Click to view billing breakdown"
+                >
+                  <div className="stat-icon purple">💰</div>
+                  <div className="stat-info">
+                    <div className="stat-value">₹{totalSpent.toLocaleString('en-IN')}</div>
+                    <div className="stat-label">Total Billed</div>
+                  </div>
+                </div>
+                <div className="glass-card stat-card">
+                  <div className="stat-icon green">💵</div>
+                  <div className="stat-info">
+                    <div className="stat-value" style={{ color: 'var(--color-success)' }}>₹{totalPaid.toLocaleString('en-IN')}</div>
+                    <div className="stat-label">Total Paid</div>
+                  </div>
+                </div>
+                <div className="glass-card stat-card clickable" onClick={() => setShowBillingModal(true)}>
+                  <div className="stat-icon orange">⚖️</div>
+                  <div className="stat-info">
+                    <div className="stat-value" style={{ color: pendingBalance > 0 ? 'var(--color-warning)' : 'var(--color-success)' }}>
+                      ₹{pendingBalance.toLocaleString('en-IN')}
+                    </div>
+                    <div className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                      <span>Pending Balance</span>
+                      <span className="badge" style={{ fontSize: '0.625rem', padding: '2px 6px', background: statusBadgeBg, color: statusBadgeColor, border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>
+                        {paymentStatus}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+            <div 
+              className="glass-card stat-card clickable" 
+              onClick={() => setShowNotesModal(true)}
+              data-tooltip="Click to view medical notes history"
+            >
+              <div className="stat-icon orange">📋</div>
+              <div className="stat-info">
+                <div className="stat-value" style={{ fontSize: '0.9rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>{patient.medicalHistory || 'None'}</div>
+                <div className="stat-label">Medical Notes</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Appointment History */}
+          <div id="appointment-history" className="glass-card-flat">
+            <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Appointment History</h2>
+            <div className="table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {patientAppts.map(appt => (
+                    <tr key={appt.id}>
+                      <td style={{ fontWeight: 500 }}>{appt.date}</td>
+                      <td>{appt.time}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{appt.type}</td>
+                      <td><span className={`badge ${getStatusBadge(appt.status)}`} style={{ textTransform: 'capitalize' }}>{appt.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: Treatment History */}
+      {activeTab === 'treatments' && (
+        <div className="stagger">
+          <div className="glass-card-flat" id="treatment-history">
+            <div className="flex-between" style={{ marginBottom: 'var(--space-md)' }}>
+              <h2 className="section-title" style={{ margin: 0 }}>Recorded Treatments</h2>
+              {user?.role === 'admin' && (
+                <button className="btn btn-primary btn-sm" onClick={() => setShowTreatModal(true)}>+ Record New Visit / Treatments</button>
+              )}
+            </div>
+            {patientTreatments.length > 0 ? (
+              <div className="timeline" style={{ paddingLeft: 'var(--space-lg)', position: 'relative' }}>
+                {patientTreatments.map(t => {
+                  let parsed = { name: t.description, notes: '' };
+                  try {
+                    if (t.description && t.description.startsWith('{')) {
+                      parsed = JSON.parse(t.description);
+                    }
+                  } catch (e) { /* fallback to plain text */ }
+
+                  const treatmentName = parsed.name || parsed.description || t.description;
+                  const notesStr = parsed.notes;
+
+                  // Filter linked photos
+                  const linkedPhotos = records.photos.filter(p => p.treatment_id === t.id);
+
+                  return (
+                    <div 
+                      key={t.id} 
+                      className="treatment-card" 
+                      onClick={() => openTreatDetailsModal(t, parsed)}
+                      style={{ cursor: 'pointer', position: 'relative', marginBottom: '16px' }}
+                    >
+                      <div className="timeline-dot green" style={{ left: '-26px', top: '20px' }} />
+                      <div className="treatment-card-header">
+                        <div>
+                          <div className="treatment-card-date">{t.date}</div>
+                          <div className="treatment-card-title">{treatmentName}</div>
+                        </div>
+                        <div className="treatment-card-actions" onClick={e => e.stopPropagation()}>
+                          <button 
+                            className="treatment-card-action-btn edit" 
+                            title="Edit Treatment"
+                            onClick={(e) => openEditTreatModal(e, t, parsed)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/>
+                            </svg>
+                          </button>
+                          <button 
+                            className="treatment-card-action-btn delete" 
+                            title="Delete Treatment"
+                            onClick={(e) => handleDeleteTreatment(t.id)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6"/>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                              <line x1="10" y1="11" x2="10" y2="17"/>
+                              <line x1="14" y1="11" x2="14" y2="17"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      {notesStr && (
+                        <div className="treatment-card-notes">
+                          {notesStr}
+                        </div>
+                      )}
+                      
+                      {/* Linked Photos Gallery */}
+                      {linkedPhotos.length > 0 && (
+                        <div style={{ marginTop: '12px', borderTop: '1px solid var(--color-border)', paddingTop: '8px' }} onClick={e => e.stopPropagation()}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '6px' }}>Clinical Photos:</span>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {linkedPhotos.map(p => (
+                              <div 
+                                key={p.id} 
+                                onClick={(e) => { 
+                                  e.stopPropagation(); 
+                                  setPreviewRecord(p); 
+                                  setPreviewType('photo'); 
+                                  setZoomScale(1); 
+                                }}
+                                style={{ position: 'relative', width: '56px', height: '56px', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--color-border)', cursor: 'pointer' }}
+                                title={`Click to preview photo (${p.category})`}
+                              >
+                                <img src={p.file_url} alt={p.category} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '8px', textAlign: 'center', padding: '1px 0', fontWeight: 'bold' }}>
+                                  {p.category}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="treatment-card-footer" style={{ marginTop: '10px' }}>
+                        <span className="treatment-card-dentist">👨‍⚕️ {t.dentist}</span>
+                        {user?.role === 'admin' && (
+                          <span className="treatment-card-cost">₹{t.cost}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>No treatments recorded</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Billing & Accounts Receivable */}
+      {activeTab === 'billing' && (
+        <div className="stagger">
+          {/* Quick Billing stats summary */}
+          <div className="stats-grid" style={{ marginBottom: 'var(--space-lg)' }}>
+            <div className="glass-card stat-card clickable" onClick={() => setShowBillingModal(true)}>
               <div className="stat-icon purple">💰</div>
               <div className="stat-info">
                 <div className="stat-value">₹{totalSpent.toLocaleString('en-IN')}</div>
@@ -752,296 +1107,542 @@ export default function PatientProfile({ params }) {
                 <div className="stat-label">Total Paid</div>
               </div>
             </div>
-            <div className="glass-card stat-card">
+            <div className="glass-card stat-card clickable" onClick={() => setShowBillingModal(true)}>
               <div className="stat-icon orange">⚖️</div>
               <div className="stat-info">
                 <div className="stat-value" style={{ color: pendingBalance > 0 ? 'var(--color-warning)' : 'var(--color-success)' }}>
                   ₹{pendingBalance.toLocaleString('en-IN')}
                 </div>
                 <div className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                  <span>Pending Balance</span>
+                  <span>Outstanding Balance</span>
                   <span className="badge" style={{ fontSize: '0.625rem', padding: '2px 6px', background: statusBadgeBg, color: statusBadgeColor, border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>
                     {paymentStatus}
                   </span>
                 </div>
               </div>
             </div>
-          </>
-        )}
-        <div 
-          className="glass-card stat-card clickable" 
-          onClick={() => setShowNotesModal(true)}
-          data-tooltip="Click to view medical notes history"
-        >
-          <div className="stat-icon orange">📋</div>
-          <div className="stat-info">
-            <div className="stat-value" style={{ fontSize: '0.9rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>{patient.medicalHistory || 'None'}</div>
-            <div className="stat-label">Medical Notes</div>
+          </div>
+
+          <div className="glass-card-flat">
+            <div className="flex-between" style={{ marginBottom: 'var(--space-md)' }}>
+              <h2 className="section-title">Payment History & Ledgers</h2>
+              <button className="btn btn-primary btn-sm" onClick={() => {
+                setPaymentFormData({
+                  amount: '',
+                  paymentDate: new Date().toISOString().split('T')[0],
+                  paymentMethod: 'UPI',
+                  referenceNumber: '',
+                  notes: ''
+                });
+                setShowRecordPaymentModal(true);
+              }}>
+                + Record Payment
+              </button>
+            </div>
+
+            {(data.payments || []).length > 0 ? (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Method</th>
+                      <th>Reference</th>
+                      <th>Notes</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.payments || []).map((pay) => (
+                      <tr key={pay.id}>
+                        <td style={{ fontWeight: 500 }}>{pay.payment_date}</td>
+                        <td style={{ fontWeight: 600, color: 'var(--color-success)' }}>
+                          ₹{parseFloat(pay.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td>
+                          <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>
+                            {pay.payment_method}
+                          </span>
+                        </td>
+                        <td>{pay.reference_number || '-'}</td>
+                        <td>{pay.notes || '-'}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <a 
+                              href={`/api/patients/${id}/payments/${pay.id}/receipt-pdf`} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="badge" 
+                              style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--color-success)', border: 'none' }}
+                            >
+                              🖨️ Receipt
+                            </a>
+                            <button 
+                              className="badge" 
+                              style={{ cursor: 'pointer', border: 'none', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--color-warning)' }}
+                              onClick={() => {
+                                setSelectedPayment(pay);
+                                setPaymentFormData({
+                                  amount: pay.amount.toString(),
+                                  paymentDate: pay.payment_date,
+                                  paymentMethod: pay.payment_method,
+                                  referenceNumber: pay.reference_number || '',
+                                  notes: pay.notes || ''
+                                });
+                                setShowEditPaymentModal(true);
+                              }}
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button 
+                              className="badge" 
+                              style={{ cursor: 'pointer', border: 'none', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}
+                              onClick={() => handleDeletePayment(pay.id)}
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                No payments recorded yet.
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="grid-2">
-        {/* Treatment History */}
-        <div id="treatment-history" className="glass-card-flat">
-          <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Treatment History</h2>
-          {patientTreatments.length > 0 ? (
-            <div className="timeline">
-              {patientTreatments.map(t => {
-                let parsed = { name: t.description, notes: '' };
-                try {
-                  if (t.description && t.description.startsWith('{')) {
-                    parsed = JSON.parse(t.description);
-                  }
-                } catch (e) { /* fallback to plain text */ }
+      {/* Tab 4: Prescriptions */}
+      {activeTab === 'prescriptions' && (
+        <div className="stagger">
+          <div className="glass-card-flat">
+            <div className="flex-between" style={{ marginBottom: 'var(--space-md)' }}>
+              <h2 className="section-title">E-Prescriptions & Bills</h2>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowRxModal(true)}>+ New Prescription</button>
+            </div>
+            
+            {patientPrescriptions.length > 0 ? (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Diagnosis</th>
+                      <th>Medications</th>
+                      <th>Amount</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {patientPrescriptions.map(rx => {
+                      let parsedMeds = [];
+                      let total = rx.total_amount || 0;
+                      try {
+                        parsedMeds = JSON.parse(rx.medications);
+                        if (!total) {
+                          const medsTotal = parsedMeds.reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+                          total = medsTotal + (parseFloat(rx.surgeon_fee) || 0);
+                        }
+                      } catch(e) { }
+                      
+                      return (
+                        <tr key={rx.id}>
+                          <td style={{ fontWeight: 500 }}>{rx.date}</td>
+                          <td>{rx.diagnosis || '-'}</td>
+                          <td>{parsedMeds.length > 0 ? `${parsedMeds.length} items` : '-'}</td>
+                          <td style={{ fontWeight: 600 }}>₹{total.toFixed(2)}</td>
+                          <td style={{ display: 'flex', gap: '8px' }}>
+                            {rx.pdf_url && <a href={rx.pdf_url} target="_blank" rel="noreferrer" className="badge badge-info" style={{ cursor: 'pointer', textDecoration: 'none' }}>⬇️ PDF E-Bill</a>}
+                            {rx.pdf_url && patient.phone && (
+                              <a
+                                 href={`https://wa.me/${patient.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello, this is your dental invoice from Victoria Dental Care.\n\nInvoice Number: RX-${rx.id.substring(0, 8).toUpperCase()}\nTotal Amount: ₹${total.toFixed(2)}\n\nDownload your E-Bill here: ${typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000')}${rx.pdf_url}`)}`}
+                                 target="_blank"
+                                 rel="noreferrer"
+                                 className="badge"
+                                 style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(37, 211, 102, 0.15)', color: '#25d366', border: 'none' }}
+                              >💬 WhatsApp</a>
+                            )}
+                            <button className="badge" style={{ cursor: 'pointer', border: 'none', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }} onClick={() => handleDeletePrescription(rx.id)}>🗑️ Delete</button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>No prescriptions generated</div>
+            )}
+          </div>
+        </div>
+      )}
 
-                const treatmentName = parsed.name || parsed.description || t.description;
-                const notesStr = parsed.notes;
+      {/* Tab 5: Photos & X-Rays */}
+      {activeTab === 'photos' && (
+        <div className="stagger">
+          <div className="grid-2" style={{ marginBottom: 'var(--space-lg)' }}>
+            {/* Upload Panel */}
+            <div className="glass-card-flat" style={{ padding: 'var(--space-lg)' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-accent)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📤 Upload Clinical Record
+              </h3>
+              {uploadError && (
+                <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-danger)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)', marginBottom: '16px', fontSize: '0.85rem' }}>
+                  ⚠️ {uploadError}
+                </div>
+              )}
+              <form onSubmit={handleUploadRecord}>
+                <div className="input-group" style={{ marginBottom: '12px' }}>
+                  <label>Select File *</label>
+                  <input 
+                    type="file" 
+                    id="file-upload-input"
+                    className="input-field" 
+                    onChange={e => setUploadFile(e.target.files[0])} 
+                    style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                    required
+                  />
+                </div>
 
-                return (
-                  <div 
-                    key={t.id} 
-                    className="treatment-card" 
-                    onClick={() => openTreatDetailsModal(t, parsed)}
-                  >
-                    <div className="timeline-dot green" style={{ left: '-26px', top: '20px' }} />
-                    <div className="treatment-card-header">
-                      <div>
-                        <div className="treatment-card-date">{t.date}</div>
-                        <div className="treatment-card-title">{treatmentName}</div>
-                      </div>
-                      <div className="treatment-card-actions" onClick={e => e.stopPropagation()}>
-                        <button 
-                          className="treatment-card-action-btn edit" 
-                          title="Edit Treatment"
-                          onClick={(e) => openEditTreatModal(e, t, parsed)}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/>
-                          </svg>
-                        </button>
-                        <button 
-                          className="treatment-card-action-btn delete" 
-                          title="Delete Treatment"
-                          onClick={(e) => handleDeleteTreatment(t.id)}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            <line x1="10" y1="11" x2="10" y2="17"/>
-                            <line x1="14" y1="11" x2="14" y2="17"/>
-                          </svg>
-                        </button>
-                      </div>
+                <div className="grid-2" style={{ gap: '12px', marginBottom: '12px' }}>
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <label>Category *</label>
+                    <select 
+                      className="input-field" 
+                      value={uploadCategory} 
+                      onChange={e => setUploadCategory(e.target.value)}
+                      style={{ fontSize: '0.85rem', padding: '8px 12px' }}
+                    >
+                      <option value="Before">Before Photo</option>
+                      <option value="During">During Photo</option>
+                      <option value="After">After Photo</option>
+                      <option value="X-Ray">X-Ray</option>
+                      <option value="Scan">Scan</option>
+                      <option value="Report">Report</option>
+                      <option value="Other">Other Document</option>
+                    </select>
+                  </div>
+
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <label>Link to Treatment (Optional)</label>
+                    <select 
+                      className="input-field" 
+                      value={uploadTreatmentId} 
+                      onChange={e => setUploadTreatmentId(e.target.value)}
+                      style={{ fontSize: '0.85rem', padding: '8px 12px' }}
+                    >
+                      <option value="">-- No link --</option>
+                      {patientTreatments.map(t => {
+                        let parsed = { name: t.description };
+                        try {
+                          if (t.description && t.description.startsWith('{')) {
+                            parsed = JSON.parse(t.description);
+                          }
+                        } catch (e) { }
+                        const name = parsed.name || parsed.description || t.description;
+                        return (
+                          <option key={t.id} value={t.id}>
+                            {t.date} - {name.substring(0, 24)}{name.length > 24 ? '...' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="input-group" style={{ marginBottom: '16px' }}>
+                  <label>Clinical Notes / Description</label>
+                  <textarea 
+                    className="input-field" 
+                    placeholder="Enter details about this image/record..." 
+                    rows={3} 
+                    value={uploadNotes} 
+                    onChange={e => setUploadNotes(e.target.value)}
+                    style={{ fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  disabled={isUploading}
+                  style={{ width: '100%' }}
+                >
+                  {isUploading ? 'Uploading & Processing...' : 'Upload Record'}
+                </button>
+              </form>
+            </div>
+
+            {/* Before/After Comparison */}
+            <div className="glass-card-flat" style={{ padding: 'var(--space-lg)', display: 'flex', flexDirection: 'column' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-accent)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🔄 Before / After Visual Slider
+              </h3>
+              {records.photos.filter(p => p.category === 'Before').length > 0 && records.photos.filter(p => p.category === 'After').length > 0 ? (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div className="grid-2" style={{ gap: '12px' }}>
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '0.75rem' }}>Select Before Photo</label>
+                      <select 
+                        className="input-field" 
+                        value={beforeImageId} 
+                        onChange={e => setBeforeImageId(e.target.value)}
+                        style={{ fontSize: '0.8rem', padding: '6px 10px' }}
+                      >
+                        {records.photos.filter(p => p.category === 'Before').map(p => (
+                          <option key={p.id} value={p.id}>{p.file_name} ({p.uploaded_at.split('T')[0]})</option>
+                        ))}
+                      </select>
                     </div>
-                    {notesStr && (
-                      <div className="treatment-card-notes">
-                        {notesStr}
-                      </div>
-                    )}
-                    <div className="treatment-card-footer">
-                      <span className="treatment-card-dentist">👨‍⚕️ {t.dentist}</span>
-                      {user?.role === 'admin' && (
-                        <span className="treatment-card-cost">₹{t.cost}</span>
-                      )}
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '0.75rem' }}>Select After Photo</label>
+                      <select 
+                        className="input-field" 
+                        value={afterImageId} 
+                        onChange={e => setAfterImageId(e.target.value)}
+                        style={{ fontSize: '0.8rem', padding: '6px 10px' }}
+                      >
+                        {records.photos.filter(p => p.category === 'After').map(p => (
+                          <option key={p.id} value={p.id}>{p.file_name} ({p.uploaded_at.split('T')[0]})</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>No treatments recorded</div>
-          )}
-        </div>
 
-        {/* Appointment History */}
-        <div id="appointment-history" className="glass-card-flat">
-          <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Appointment History</h2>
-          <div className="table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {patientAppts.map(appt => (
-                  <tr key={appt.id}>
-                    <td style={{ fontWeight: 500 }}>{appt.date}</td>
-                    <td>{appt.time}</td>
-                    <td style={{ textTransform: 'capitalize' }}>{appt.type}</td>
-                    <td><span className={`badge ${getStatusBadge(appt.status)}`} style={{ textTransform: 'capitalize' }}>{appt.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+                  {/* Slider Widget */}
+                  {records.photos.find(p => p.id === beforeImageId || (records.photos.filter(x => x.category === 'Before')[0]?.id === p.id)) && 
+                   records.photos.find(p => p.id === afterImageId || (records.photos.filter(x => x.category === 'After')[0]?.id === p.id)) && (
+                    <div style={{ position: 'relative', width: '100%', aspectRatio: '16/10', overflow: 'hidden', borderRadius: '12px', border: '1px solid var(--color-border)', flex: 1, minHeight: '200px' }}>
+                      {/* Before Image */}
+                      <img 
+                        src={(records.photos.find(p => p.id === beforeImageId) || records.photos.filter(p => p.category === 'Before')[0]).file_url} 
+                        alt="Before" 
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} 
+                      />
+                      <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(0,0,0,0.65)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', zIndex: 5 }}>
+                        Before
+                      </div>
 
-      {/* Prescriptions History */}
-      <div className="glass-card-flat" style={{ marginTop: 'var(--space-lg)' }}>
-        <div className="flex-between" style={{ marginBottom: 'var(--space-md)' }}>
-          <h2 className="section-title">E-Prescriptions / Bills</h2>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {user?.role === 'admin' && (
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowTreatModal(true)} style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)' }}>+ New Visit / Treatments</button>
-            )}
-            <button className="btn btn-primary btn-sm" onClick={() => setShowRxModal(true)}>+ New Prescription</button>
-          </div>
-        </div>
-        
-        {patientPrescriptions.length > 0 ? (
-          <div className="table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Diagnosis</th>
-                  <th>Medications</th>
-                  <th>Amount</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {patientPrescriptions.map(rx => {
-                  let parsedMeds = [];
-                  let total = rx.total_amount || 0;
-                  try {
-                    parsedMeds = JSON.parse(rx.medications);
-                    if (!total) {
-                      const medsTotal = parsedMeds.reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
-                      total = medsTotal + (parseFloat(rx.surgeon_fee) || 0);
-                    }
-                  } catch(e) { }
-                  
-                  return (
-                    <tr key={rx.id}>
-                      <td style={{ fontWeight: 500 }}>{rx.date}</td>
-                      <td>{rx.diagnosis || '-'}</td>
-                      <td>{parsedMeds.length > 0 ? `${parsedMeds.length} items` : '-'}</td>
-                      <td style={{ fontWeight: 600 }}>₹{total.toFixed(2)}</td>
-                      <td style={{ display: 'flex', gap: '8px' }}>
-                        {rx.pdf_url && <a href={rx.pdf_url} target="_blank" rel="noreferrer" className="badge badge-info" style={{ cursor: 'pointer', textDecoration: 'none' }}>⬇️ PDF E-Bill</a>}
-                        {rx.pdf_url && patient.phone && (
-                          <a
-                             href={`https://wa.me/${patient.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello, this is your dental invoice from Victoria Dental Care.\n\nInvoice Number: RX-${rx.id.substring(0, 8).toUpperCase()}\nTotal Amount: ₹${total.toFixed(2)}\n\nDownload your E-Bill here: ${typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000')}${rx.pdf_url}`)}`}
-                             target="_blank"
-                             rel="noreferrer"
-                             className="badge"
-                             style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(37, 211, 102, 0.15)', color: '#25d366', border: 'none' }}
-                          >💬 WhatsApp</a>
-                        )}
-                        <button className="badge" style={{ cursor: 'pointer', border: 'none', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }} onClick={() => handleDeletePrescription(rx.id)}>🗑️ Delete</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>No prescriptions generated</div>
-        )}
-      </div>
+                      {/* After Image */}
+                      <img 
+                        src={(records.photos.find(p => p.id === afterImageId) || records.photos.filter(p => p.category === 'After')[0]).file_url} 
+                        alt="After" 
+                        style={{ 
+                          position: 'absolute', 
+                          top: 0, 
+                          left: 0, 
+                          width: '100%', 
+                          height: '100%', 
+                          objectFit: 'cover',
+                          clipPath: `polygon(0 0, ${sliderPos}% 0, ${sliderPos}% 100%, 0 100%)`
+                        }} 
+                      />
+                      <div style={{ position: 'absolute', bottom: 8, right: 8, background: 'var(--color-accent)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', zIndex: 5 }}>
+                        After
+                      </div>
 
-      {/* Payment History & Ledgers */}
-      {user?.role === 'admin' && (
-        <div className="glass-card-flat" style={{ marginTop: 'var(--space-lg)' }}>
-          <div className="flex-between" style={{ marginBottom: 'var(--space-md)' }}>
-            <h2 className="section-title">Payment History & Ledgers</h2>
-            <button className="btn btn-primary btn-sm" onClick={() => {
-              setPaymentFormData({
-                amount: '',
-                paymentDate: new Date().toISOString().split('T')[0],
-                paymentMethod: 'UPI',
-                referenceNumber: '',
-                notes: ''
-              });
-              setShowRecordPaymentModal(true);
-            }}>
-              + Record Payment
-            </button>
-          </div>
-
-          {(data.payments || []).length > 0 ? (
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Amount</th>
-                    <th>Method</th>
-                    <th>Reference</th>
-                    <th>Notes</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.payments || []).map((pay) => (
-                    <tr key={pay.id}>
-                      <td style={{ fontWeight: 500 }}>{pay.payment_date}</td>
-                      <td style={{ fontWeight: 600, color: 'var(--color-success)' }}>
-                        ₹{parseFloat(pay.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td>
-                        <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>
-                          {pay.payment_method}
-                        </span>
-                      </td>
-                      <td>{pay.reference_number || '-'}</td>
-                      <td>{pay.notes || '-'}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <a 
-                            href={`/api/patients/${id}/payments/${pay.id}/receipt-pdf`} 
-                            target="_blank" 
-                            rel="noreferrer" 
-                            className="badge" 
-                            style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--color-success)', border: 'none' }}
-                          >
-                            🖨️ Receipt
-                          </a>
-                          <button 
-                            className="badge" 
-                            style={{ cursor: 'pointer', border: 'none', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--color-warning)' }}
-                            onClick={() => {
-                              setSelectedPayment(pay);
-                              setPaymentFormData({
-                                amount: pay.amount.toString(),
-                                paymentDate: pay.payment_date,
-                                paymentMethod: pay.payment_method,
-                                referenceNumber: pay.reference_number || '',
-                                notes: pay.notes || ''
-                              });
-                              setShowEditPaymentModal(true);
-                            }}
-                          >
-                            ✏️ Edit
-                          </button>
-                          <button 
-                            className="badge" 
-                            style={{ cursor: 'pointer', border: 'none', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}
-                            onClick={() => handleDeletePayment(pay.id)}
-                          >
-                            🗑️ Delete
-                          </button>
+                      {/* Slider bar line */}
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${sliderPos}%`, width: '2px', background: '#fff', zIndex: 10, pointerEvents: 'none' }}>
+                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '30px', height: '30px', borderRadius: '50%', background: '#fff', border: '2px solid var(--color-accent)', boxShadow: '0 2px 6px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-accent)', fontWeight: 'bold', fontSize: '12px' }}>
+                          ↔
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+
+                      {/* Range overlay */}
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        value={sliderPos} 
+                        onChange={(e) => setSliderPos(parseFloat(e.target.value))} 
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize', zIndex: 20 }} 
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center', border: '1px dashed var(--color-border)', borderRadius: '12px', background: 'rgba(255,255,255,0.01)' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: '8px' }}>📸</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+                    Visual comparison requires at least one photo uploaded under "Before Photo" and another under "After Photo" categories.
+                  </div>
+                </div>
+              )}
             </div>
-          ) : (
-            <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-              No payments recorded yet.
+          </div>
+
+          {/* Gallery grid */}
+          <div className="glass-card-flat" style={{ padding: 'var(--space-lg)' }}>
+            <div className="flex-between" style={{ marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
+                📂 Clinical Records Gallery
+              </h3>
+              
+              {/* Gallery filter tags */}
+              <div style={{ display: 'flex', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                {[
+                  { id: 'all', label: 'All Records' },
+                  { id: 'photos', label: 'Photos' },
+                  { id: 'xrays', label: 'X-Rays' },
+                  { id: 'files', label: 'Scans & Reports' }
+                ].map(tag => (
+                  <button
+                    key={tag.id}
+                    onClick={() => setGalleryFilter(tag.id)}
+                    style={{
+                      padding: '6px 12px',
+                      border: 'none',
+                      background: galleryFilter === tag.id ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                      color: galleryFilter === tag.id ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
+
+            {recordsLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>Loading clinical records...</div>
+            ) : (
+              [
+                ...records.photos.map(r => ({ ...r, type: 'photo' })),
+                ...records.xrays.map(r => ({ ...r, type: 'xray' })),
+                ...records.files.map(r => ({ ...r, type: 'file' }))
+              ].sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
+               .filter(r => {
+                 if (galleryFilter === 'all') return true;
+                 if (galleryFilter === 'photos') return r.type === 'photo';
+                 if (galleryFilter === 'xrays') return r.type === 'xray';
+                 if (galleryFilter === 'files') return r.type === 'file';
+                 return true;
+               }).length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+                  {[
+                    ...records.photos.map(r => ({ ...r, type: 'photo' })),
+                    ...records.xrays.map(r => ({ ...r, type: 'xray' })),
+                    ...records.files.map(r => ({ ...r, type: 'file' }))
+                  ].sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
+                   .filter(r => {
+                     if (galleryFilter === 'all') return true;
+                     if (galleryFilter === 'photos') return r.type === 'photo';
+                     if (galleryFilter === 'xrays') return r.type === 'xray';
+                     if (galleryFilter === 'files') return r.type === 'file';
+                     return true;
+                   }).map(item => {
+                    const isDoc = item.type === 'file';
+                    const uploadDateStr = new Date(item.uploaded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                    
+                    return (
+                      <div 
+                        key={item.id}
+                        className="glass-card"
+                        style={{ padding: 0, borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '240px', position: 'relative', border: '1px solid var(--color-border)', transition: 'transform 0.2s ease' }}
+                        onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-4px)'}
+                        onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+                      >
+                        {/* Thumbnail */}
+                        <div style={{ height: '130px', background: 'rgba(255,255,255,0.01)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', borderBottom: '1px solid var(--color-border)', overflow: 'hidden' }}>
+                          {isDoc ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontSize: '3rem' }}>📄</span>
+                              <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>{item.category}</span>
+                            </div>
+                          ) : (
+                            <img src={item.file_url} alt={item.file_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          )}
+
+                          {/* Hover Overlay */}
+                          <div 
+                            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: 0, transition: 'opacity 0.2s ease', cursor: 'default' }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                            onMouseLeave={e => e.currentTarget.style.opacity = 0}
+                          >
+                            {!isDoc && (
+                              <button 
+                                className="btn btn-secondary btn-sm" 
+                                style={{ padding: '6px 10px', background: '#fff', color: '#000', border: 'none' }}
+                                onClick={() => {
+                                  setPreviewRecord(item);
+                                  setPreviewType(item.type);
+                                  setZoomScale(1);
+                                }}
+                              >
+                                🔍 Preview
+                              </button>
+                            )}
+                            <a 
+                              href={item.file_url} 
+                              download={item.file_name}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn btn-secondary btn-sm" 
+                              style={{ padding: '6px 10px', textDecoration: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid #fff' }}
+                            >
+                              ⬇️ Download
+                            </a>
+                          </div>
+                        </div>
+
+                        {/* Card metadata details */}
+                        <div style={{ padding: '10px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <span className="badge" style={{ 
+                                fontSize: '0.6rem', 
+                                padding: '1px 6px', 
+                                border: 'none', 
+                                background: item.type === 'photo' ? 'rgba(59, 130, 246, 0.15)' : 
+                                            item.type === 'xray' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(175, 82, 222, 0.15)',
+                                color: item.type === 'photo' ? 'var(--color-accent)' : 
+                                       item.type === 'xray' ? 'var(--color-success)' : 'var(--color-purple)'
+                              }}>
+                                {item.category || 'X-Ray'}
+                              </span>
+                              <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.65rem' }}>{uploadDateStr}</span>
+                            </div>
+                            <div style={{ fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-primary)' }} title={item.file_name}>
+                              {item.file_name}
+                            </div>
+                            {item.notes && (
+                              <div style={{ color: 'var(--color-text-secondary)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: '1.2' }} title={item.notes}>
+                                {item.notes}
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', borderTop: '1px solid var(--color-border)', paddingTop: '6px', fontSize: '0.65rem', color: 'var(--color-text-secondary)' }}>
+                            <span>👨‍⚕️ {item.uploaded_by}</span>
+                            <button 
+                              style={{ border: 'none', background: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontWeight: 'bold' }}
+                              onClick={() => handleDeleteRecord(item.id, item.type, item.file_name)}
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--color-text-secondary)', border: '1px dashed var(--color-border)', borderRadius: '12px', background: 'rgba(255,255,255,0.01)' }}>
+                  No clinical records found matching filter.
+                </div>
+              )
+            )}
+          </div>
         </div>
       )}
 
@@ -1863,6 +2464,59 @@ export default function PatientProfile({ params }) {
           <textarea className="input-field" placeholder="Any payment remarks..." rows={2} value={paymentFormData.notes} onChange={e => setPaymentFormData({...paymentFormData, notes: e.target.value})} />
         </div>
       </Modal>
+
+      {/* Fullscreen Image Preview Modal */}
+      {previewRecord && (
+        <Modal 
+          isOpen={!!previewRecord} 
+          onClose={() => { setPreviewRecord(null); setZoomScale(1); }} 
+          title={`Clinical Record: ${previewRecord.file_name}`}
+          footer={
+            <div className="flex-between" style={{ width: '100%' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => setZoomScale(z => Math.max(0.5, z - 0.25))}>🔍 Out</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setZoomScale(1)}>Reset</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setZoomScale(z => Math.min(3, z + 0.25))}>🔍 In</button>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <a href={previewRecord.file_url} download={previewRecord.file_name} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>⬇️ Download</a>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setPreviewRecord(null); setZoomScale(1); }}>Close</button>
+              </div>
+            </div>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+            <div style={{ width: '100%', maxHeight: '60vh', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', background: '#000', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+              <div style={{ transform: `scale(${zoomScale})`, transition: 'transform 0.2s ease', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <img 
+                  src={previewRecord.file_url} 
+                  alt={previewRecord.file_name} 
+                  style={{ maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain' }} 
+                />
+              </div>
+            </div>
+            <div style={{ width: '100%', fontSize: '0.85rem' }}>
+              <div className="flex-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '8px', marginBottom: '8px' }}>
+                <span className="badge" style={{ 
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  color: 'var(--color-accent)',
+                  border: 'none',
+                  fontWeight: 'bold'
+                }}>
+                  Category: {previewRecord.category || 'X-Ray'}
+                </span>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Uploaded by {previewRecord.uploaded_by} on {new Date(previewRecord.uploaded_at).toLocaleString('en-IN')}</span>
+              </div>
+              {previewRecord.notes && (
+                <div>
+                  <strong>Clinical Notes:</strong>
+                  <p style={{ marginTop: '4px', color: 'var(--color-text-secondary)', fontStyle: 'italic', background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>{previewRecord.notes}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
