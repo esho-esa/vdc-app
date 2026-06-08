@@ -8,6 +8,7 @@ const navItems = [
   { label: 'Patients', href: '/patients', icon: '👤' },
   { label: 'Appointments', href: '/appointments', icon: '📅' },
   { label: 'Inventory', href: '/inventory', icon: '📦' },
+  { label: 'Expenses', href: '/expenses', icon: '💸' },
   { label: 'Notifications', href: '/notifications', icon: '🔔' },
   { label: 'Settings', href: '/settings', icon: '⚙️' },
 ];
@@ -50,10 +51,10 @@ export default function Sidebar({ isOpen, onClose }) {
       return ['Dashboard', 'Patients', 'Appointments', 'Notifications'].includes(item.label);
     }
     if (role === 'dentist') {
-      return ['Dashboard', 'Patients', 'Notifications'].includes(item.label);
+      return ['Dashboard', 'Patients', 'Expenses', 'Notifications'].includes(item.label);
     }
     if (role === 'accountant') {
-      return ['Dashboard', 'Patients', 'Revenue', 'Outstanding Payments', 'Reports', 'Notifications'].includes(item.label);
+      return ['Dashboard', 'Patients', 'Revenue', 'Outstanding Payments', 'Expenses', 'Reports', 'Notifications'].includes(item.label);
     }
     if (role === 'assistant') {
       return ['Dashboard', 'Patients', 'Appointments', 'Notifications'].includes(item.label);
@@ -61,6 +62,7 @@ export default function Sidebar({ isOpen, onClose }) {
     
     return false;
   });
+
 
   return (
     <>

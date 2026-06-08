@@ -59,6 +59,10 @@ export default function AppShell({ children }) {
       return false;
     }
 
+    if (pathname.startsWith('/expenses')) {
+      return role === 'accountant' || role === 'dentist';
+    }
+
     if (pathname.startsWith('/settings')) {
       return false;
     }
