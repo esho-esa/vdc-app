@@ -36,18 +36,31 @@ export async function GET(request) {
 
     // Only fetch revenue data for admin users
     if (isAdmin) {
-      // 4. Revenue: today
+      // 4. Revenue: today (prescriptions)
       queries.push(
         supabase
           .from('prescriptions')
           .select('total_amount, surgeon_fee')
           .eq('date', today)
       )
-      // 5. Revenue: total
+      // 5. Revenue: total (prescriptions)
       queries.push(
         supabase
           .from('prescriptions')
           .select('total_amount, surgeon_fee')
+      )
+      // 6. Revenue: today (treatments)
+      queries.push(
+        supabase
+          .from('treatments')
+          .select('cost, treatment_fee, surgery_fee, consultation_fee')
+          .eq('date', today)
+      )
+      // 7. Revenue: total (treatments)
+      queries.push(
+        supabase
+          .from('treatments')
+          .select('cost, treatment_fee, surgery_fee, consultation_fee')
       )
     }
 
@@ -83,13 +96,18 @@ export async function GET(request) {
     let revenueDetails = { total: 0, treatment: 0, surgery: 0 }
     let todayRevenue = 0
 
-    if (isAdmin && results[3] && results[4]) {
+    if (isAdmin && results[3] && results[4] && results[5] && results[6]) {
       const todayRx = results[3].data || []
       const allRx = results[4].data || []
+      const todayTx = results[5].data || []
+      const allTx = results[6].data || []
 
-      todayRevenue = todayRx.reduce((sum, r) => sum + (parseFloat(r.total_amount) || 0), 0)
+      const todayRxRev = todayRx.reduce((sum, r) => sum + (parseFloat(r.total_amount) || 0), 0)
+      const todayTxRev = todayTx.reduce((sum, t) => sum + (parseFloat(t.cost) || 0), 0)
+      todayRevenue = todayRxRev + todayTxRev
 
       let totalRev = 0, treatmentRev = 0, surgeryRev = 0
+      
       for (const r of allRx) {
         const amt = parseFloat(r.total_amount) || 0
         const fee = parseFloat(r.surgeon_fee) || 0
@@ -97,6 +115,18 @@ export async function GET(request) {
         surgeryRev += fee
         treatmentRev += (amt - fee)
       }
+
+      for (const t of allTx) {
+        const cost = parseFloat(t.cost) || 0
+        const sFee = parseFloat(t.surgery_fee) || 0
+        const tFee = parseFloat(t.treatment_fee) || 0
+        const cFee = parseFloat(t.consultation_fee) || 0
+
+        totalRev += cost
+        surgeryRev += sFee
+        treatmentRev += (tFee + cFee)
+      }
+
       revenueDetails = { total: totalRev, treatment: treatmentRev, surgery: surgeryRev }
     }
 

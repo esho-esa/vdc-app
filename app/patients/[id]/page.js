@@ -18,16 +18,18 @@ export default function PatientProfile({ params }) {
   const [rxFormData, setRxFormData] = useState({ date: new Date().toISOString().split('T')[0], diagnosis: '', medications: [{ name: '', price: '' }], surgeonFee: '0', notes: '' });
   const [isRxSaving, setIsRxSaving] = useState(false);
 
+  // New multi-treatment state variables
   const [showTreatModal, setShowTreatModal] = useState(false);
-  const [treatFormData, setTreatFormData] = useState({ 
-    date: new Date().toISOString().split('T')[0], 
-    description: '', 
-    treatmentFee: '', 
-    surgeryFee: '', 
-    consultationFee: '',
-    dentist: 'Dr. Anand' 
-  });
+  const [treatmentsList, setTreatmentsList] = useState([{ description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+  const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
+  const [visitDentist, setVisitDentist] = useState('Dr. Anand');
   const [isTreatSaving, setIsTreatSaving] = useState(false);
+
+  // Edit / Details treatment state variables
+  const [showEditTreatModal, setShowEditTreatModal] = useState(false);
+  const [showTreatDetailsModal, setShowTreatDetailsModal] = useState(false);
+  const [selectedTreatment, setSelectedTreatment] = useState(null);
+  const [editTreatFormData, setEditTreatFormData] = useState({ description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '', dentist: 'Dr. Anand', date: new Date().toISOString().split('T')[0] });
 
   function handleAddMedicine() {
     setRxFormData({ ...rxFormData, medications: [...rxFormData.medications, { name: '', price: '' }] });
@@ -42,6 +44,21 @@ export default function PatientProfile({ params }) {
   function handleRemoveMedicine(index) {
     const newMeds = rxFormData.medications.filter((_, i) => i !== index);
     setRxFormData({ ...rxFormData, medications: newMeds });
+  }
+
+  // Multi-treatment dynamic row handlers
+  function handleAddTreatmentRow() {
+    setTreatmentsList([...treatmentsList, { description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+  }
+
+  function handleRemoveTreatmentRow(index) {
+    setTreatmentsList(treatmentsList.filter((_, i) => i !== index));
+  }
+
+  function handleTreatmentRowChange(index, field, value) {
+    const newList = [...treatmentsList];
+    newList[index][field] = value;
+    setTreatmentsList(newList);
   }
 
   useEffect(() => {
@@ -120,40 +137,114 @@ export default function PatientProfile({ params }) {
   }
 
   async function handleAddTreatment() {
-    if (!treatFormData.description || !treatFormData.date) {
-      alert('Description and date are required');
+    // Validation: prevent empty treatments or empty fields
+    const emptyFields = treatmentsList.some(t => !t.description);
+    if (emptyFields || !visitDate) {
+      alert('Treatment Name and Date are required for all rows.');
       return;
     }
+
     setIsTreatSaving(true);
     try {
+      const payload = treatmentsList.map(item => ({
+        description: item.description,
+        toothNumber: item.toothNumber,
+        notes: item.notes,
+        treatmentFee: item.treatmentFee || '0',
+        surgeryFee: item.surgeryFee || '0',
+        consultationFee: item.consultationFee || '0',
+        dentist: visitDentist,
+        date: visitDate
+      }));
+
       const res = await fetch(`/api/patients/${id}/treatments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(treatFormData)
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
-        const newTreat = await res.json();
+        const newTreats = await res.json();
+        const treatsArray = Array.isArray(newTreats) ? newTreats : [newTreats];
         setData({
           ...data,
-          treatments: [newTreat, ...(data.treatments || [])]
+          treatments: [...treatsArray, ...(data.treatments || [])]
         });
         setShowTreatModal(false);
-        setTreatFormData({ 
-          date: new Date().toISOString().split('T')[0], 
-          description: '', 
-          treatmentFee: '', 
-          surgeryFee: '', 
-          consultationFee: '',
-          dentist: 'Dr. Anand' 
-        });
+        // Reset list and details
+        setTreatmentsList([{ description: '', toothNumber: '', notes: '', treatmentFee: '', surgeryFee: '', consultationFee: '' }]);
+        setVisitDate(new Date().toISOString().split('T')[0]);
       } else {
-        alert('Failed to record treatment');
+        alert('Failed to record treatments');
       }
     } catch (e) {
       console.error(e);
-      alert('Error creating treatment');
+      alert('Error creating treatments');
     } finally {
       setIsTreatSaving(false);
+    }
+  }
+
+  async function handleSaveTreatment() {
+    if (!editTreatFormData.description || !editTreatFormData.date) {
+      alert('Treatment Name and Date are required');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/patients/${id}/treatments/${selectedTreatment.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editTreatFormData.description,
+          toothNumber: editTreatFormData.toothNumber,
+          notes: editTreatFormData.notes,
+          treatmentFee: editTreatFormData.treatmentFee,
+          surgeryFee: editTreatFormData.surgeryFee,
+          consultationFee: editTreatFormData.consultationFee,
+          dentist: editTreatFormData.dentist,
+          date: editTreatFormData.date
+        })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setData({
+          ...data,
+          treatments: data.treatments.map(t => t.id === selectedTreatment.id ? updated : t)
+        });
+        setShowEditTreatModal(false);
+        setSelectedTreatment(null);
+      } else {
+        alert('Failed to update treatment');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error saving treatment');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteTreatment(txId) {
+    if (!confirm('Are you sure you want to delete this treatment? This will automatically update clinic revenue stats.')) return;
+    try {
+      const res = await fetch(`/api/patients/${id}/treatments/${txId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setData({
+          ...data,
+          treatments: data.treatments.filter(t => t.id !== txId)
+        });
+        if (selectedTreatment?.id === txId) {
+          setShowTreatDetailsModal(false);
+          setSelectedTreatment(null);
+        }
+      } else {
+        alert('Failed to delete treatment');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error deleting treatment');
     }
   }
 
@@ -173,6 +264,31 @@ export default function PatientProfile({ params }) {
       console.error(e);
       alert('Error deleting prescription');
     }
+  }
+
+  function openEditTreatModal(e, t, parsed) {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedTreatment(t);
+    setEditTreatFormData({
+      description: parsed.name || parsed.description || t.description,
+      toothNumber: parsed.tooth_number || '',
+      notes: parsed.notes || '',
+      treatmentFee: t.treatment_fee.toString(),
+      surgeryFee: t.surgery_fee.toString(),
+      consultationFee: t.consultation_fee.toString(),
+      dentist: t.dentist || 'Dr. Anand',
+      date: t.date
+    });
+    setShowEditTreatModal(true);
+  }
+
+  function openTreatDetailsModal(t, parsed) {
+    setSelectedTreatment({
+      ...t,
+      parsed
+    });
+    setShowTreatDetailsModal(true);
   }
 
   if (loading) return <div style={{ padding: 'var(--space-2xl)', textAlign: 'center' }}>Loading profile...</div>;
@@ -265,15 +381,55 @@ export default function PatientProfile({ params }) {
           <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Treatment History</h2>
           {patientTreatments.length > 0 ? (
             <div className="timeline">
-              {patientTreatments.map(t => (
-                <div key={t.id} className="timeline-item">
-                  <div className="timeline-dot green" />
-                  <div className="timeline-time">{t.date}</div>
-                  <div className="timeline-text">{t.description}</div>
-                  {user?.role === 'admin' && <div className="timeline-subtext">{t.dentist} · ₹{t.cost}</div>}
-                  {user?.role !== 'admin' && <div className="timeline-subtext">{t.dentist}</div>}
-                </div>
-              ))}
+              {patientTreatments.map(t => {
+                let parsed = { name: t.description, tooth_number: '', notes: '' };
+                try {
+                  if (t.description && t.description.startsWith('{')) {
+                    parsed = JSON.parse(t.description);
+                  }
+                } catch (e) { /* fallback to plain text */ }
+
+                const treatmentName = parsed.name || parsed.description || t.description;
+                const toothStr = parsed.tooth_number;
+                const notesStr = parsed.notes;
+
+                return (
+                  <div 
+                    key={t.id} 
+                    className="timeline-item" 
+                    onClick={() => openTreatDetailsModal(t, parsed)}
+                    style={{ cursor: 'pointer', transition: 'background 0.2s', padding: '12px 16px', borderRadius: '8px' }}
+                  >
+                    <div className="timeline-dot green" />
+                    <div className="timeline-time flex-between" style={{ width: '100%' }}>
+                      <span>{t.date}</span>
+                      <div style={{ display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: '0.75rem', color: 'var(--color-accent)' }} onClick={(e) => openEditTreatModal(e, t, parsed)}>✏️ Edit</button>
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: '0.75rem', color: 'var(--color-danger)' }} onClick={(e) => handleDeleteTreatment(t.id)}>🗑️ Delete</button>
+                      </div>
+                    </div>
+                    <div className="timeline-text" style={{ fontWeight: 600, fontSize: '0.9375rem', marginTop: '4px' }}>
+                      {treatmentName}
+                    </div>
+                    {toothStr && (
+                      <div style={{ fontSize: '0.8125rem', marginTop: '2px', color: 'var(--color-accent)', fontWeight: 500 }}>
+                        🦷 Tooth: {toothStr}
+                      </div>
+                    )}
+                    {notesStr && (
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', fontStyle: 'italic', marginTop: '2px' }}>
+                        Note: {notesStr}
+                      </div>
+                    )}
+                    <div className="timeline-subtext" style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{t.dentist}</span>
+                      {user?.role === 'admin' && (
+                        <span className="badge badge-info" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: 'none' }}>₹{t.cost}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div style={{ padding: 'var(--space-lg)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>No treatments recorded</div>
@@ -314,7 +470,7 @@ export default function PatientProfile({ params }) {
           <h2 className="section-title">E-Prescriptions / Bills</h2>
           <div style={{ display: 'flex', gap: '8px' }}>
             {user?.role === 'admin' && (
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowTreatModal(true)} style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)' }}>+ New Treatment Entry</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowTreatModal(true)} style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)' }}>+ New Visit / Treatments</button>
             )}
             <button className="btn btn-primary btn-sm" onClick={() => setShowRxModal(true)}>+ New Prescription</button>
           </div>
@@ -354,11 +510,11 @@ export default function PatientProfile({ params }) {
                         {rx.pdf_url && <a href={rx.pdf_url} target="_blank" rel="noreferrer" className="badge badge-info" style={{ cursor: 'pointer', textDecoration: 'none' }}>⬇️ PDF E-Bill</a>}
                         {rx.pdf_url && patient.phone && (
                           <a
-                            href={`https://wa.me/${patient.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello, this is your dental invoice from Victoria Dental Care.\n\nInvoice Number: RX-${rx.id.substring(0, 8).toUpperCase()}\nTotal Amount: ₹${total.toFixed(2)}\n\nDownload your E-Bill here: ${typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000')}${rx.pdf_url}`)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="badge"
-                            style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(37, 211, 102, 0.15)', color: '#25d366', border: 'none' }}
+                             href={`https://wa.me/${patient.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello, this is your dental invoice from Victoria Dental Care.\n\nInvoice Number: RX-${rx.id.substring(0, 8).toUpperCase()}\nTotal Amount: ₹${total.toFixed(2)}\n\nDownload your E-Bill here: ${typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000')}${rx.pdf_url}`)}`}
+                             target="_blank"
+                             rel="noreferrer"
+                             className="badge"
+                             style={{ cursor: 'pointer', textDecoration: 'none', background: 'rgba(37, 211, 102, 0.15)', color: '#25d366', border: 'none' }}
                           >💬 WhatsApp</a>
                         )}
                         <button className="badge" style={{ cursor: 'pointer', border: 'none', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }} onClick={() => handleDeletePrescription(rx.id)}>🗑️ Delete</button>
@@ -453,47 +609,221 @@ export default function PatientProfile({ params }) {
         </div>
       </Modal>
 
-      {/* New Treatment Modal */}
-      <Modal isOpen={showTreatModal} onClose={() => setShowTreatModal(false)} title="New Treatment Entry" footer={
+      {/* New Dynamic Multi-Treatment Modal */}
+      <Modal isOpen={showTreatModal} onClose={() => setShowTreatModal(false)} title="Record New Patient Visit / Treatments" footer={
         <>
           <button className="btn btn-secondary" onClick={() => setShowTreatModal(false)} disabled={isTreatSaving}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleAddTreatment} disabled={isTreatSaving}>{isTreatSaving ? 'Saving...' : 'Save Treatment'}</button>
+          <button className="btn btn-primary" onClick={handleAddTreatment} disabled={isTreatSaving}>{isTreatSaving ? 'Saving Visit...' : 'Save Treatments'}</button>
+        </>
+      }>
+        <div className="grid-2" style={{ marginBottom: '16px', borderBottom: '1px solid var(--color-border)', paddingBottom: '16px' }}>
+          <div className="input-group">
+            <label>Visit Date</label>
+            <input type="date" className="input-field" value={visitDate} onChange={e => setVisitDate(e.target.value)} />
+          </div>
+          <div className="input-group">
+            <label>Dentist In Charge</label>
+            <input type="text" className="input-field" value={visitDentist} onChange={e => setVisitDentist(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '360px', overflowY: 'auto', paddingRight: '4px' }}>
+          {treatmentsList.map((item, idx) => (
+            <div key={idx} style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)', position: 'relative' }}>
+              {treatmentsList.length > 1 && (
+                <button 
+                  type="button" 
+                  className="btn btn-ghost btn-sm" 
+                  onClick={() => handleRemoveTreatmentRow(idx)}
+                  style={{ position: 'absolute', top: 8, right: 8, color: 'var(--color-danger)', padding: '4px 8px' }}
+                >
+                  ✕ Remove
+                </button>
+              )}
+              <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '12px', color: 'var(--color-accent)' }}>Treatment #{idx + 1}</h4>
+              
+              <div className="grid-2">
+                <div className="input-group">
+                  <label>Treatment Name (Required)</label>
+                  <input 
+                    type="text" 
+                    className="input-field" 
+                    placeholder="e.g. Scaling, Extraction" 
+                    value={item.description} 
+                    onChange={e => handleTreatmentRowChange(idx, 'description', e.target.value)} 
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Tooth Number(s) (Optional)</label>
+                  <input 
+                    type="text" 
+                    className="input-field" 
+                    placeholder="e.g. 14, 15" 
+                    value={item.toothNumber} 
+                    onChange={e => handleTreatmentRowChange(idx, 'toothNumber', e.target.value)} 
+                  />
+                </div>
+              </div>
+
+              <div className="grid-3" style={{ marginTop: '8px' }}>
+                <div className="input-group">
+                  <label style={{ fontSize: '0.75rem' }}>Treatment Fee (₹)</label>
+                  <input 
+                    type="number" 
+                    className="input-field" 
+                    placeholder="0" 
+                    value={item.treatmentFee} 
+                    onChange={e => handleTreatmentRowChange(idx, 'treatmentFee', e.target.value)} 
+                  />
+                </div>
+                <div className="input-group">
+                  <label style={{ fontSize: '0.75rem' }}>Surgery Fee (₹)</label>
+                  <input 
+                    type="number" 
+                    className="input-field" 
+                    placeholder="0" 
+                    value={item.surgeryFee} 
+                    onChange={e => handleTreatmentRowChange(idx, 'surgeryFee', e.target.value)} 
+                  />
+                </div>
+                <div className="input-group">
+                  <label style={{ fontSize: '0.75rem' }}>Consultation Fee (₹)</label>
+                  <input 
+                    type="number" 
+                    className="input-field" 
+                    placeholder="0" 
+                    value={item.consultationFee} 
+                    onChange={e => handleTreatmentRowChange(idx, 'consultationFee', e.target.value)} 
+                  />
+                </div>
+              </div>
+
+              <div className="input-group" style={{ marginTop: '8px' }}>
+                <label style={{ fontSize: '0.75rem' }}>Treatment Notes</label>
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  placeholder="Notes..." 
+                  value={item.notes} 
+                  onChange={e => handleTreatmentRowChange(idx, 'notes', e.target.value)} 
+                />
+              </div>
+
+              <div style={{ textAlign: 'right', fontWeight: 600, fontSize: '0.8125rem', marginTop: '8px', color: 'var(--color-text-secondary)' }}>
+                Sub Total: ₹{(parseFloat(item.treatmentFee) || 0) + (parseFloat(item.surgeryFee) || 0) + (parseFloat(item.consultationFee) || 0)}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddTreatmentRow}>+ Add Another Treatment</button>
+          <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-success)' }}>
+            Visit Total: ₹{
+              treatmentsList.reduce((sum, item) => sum + (parseFloat(item.treatmentFee) || 0) + (parseFloat(item.surgeryFee) || 0) + (parseFloat(item.consultationFee) || 0), 0)
+            }
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Treatment Modal */}
+      <Modal isOpen={showEditTreatModal} onClose={() => { setShowEditTreatModal(false); setSelectedTreatment(null); }} title="Edit Treatment Details" footer={
+        <>
+          <button className="btn btn-secondary" onClick={() => { setShowEditTreatModal(false); setSelectedTreatment(null); }} disabled={isSaving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSaveTreatment} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Changes'}</button>
         </>
       }>
         <div className="input-group">
-          <label>Treatment Description</label>
-          <input type="text" className="input-field" placeholder="e.g. Root Canal, Scaling" value={treatFormData.description} onChange={e => setTreatFormData({...treatFormData, description: e.target.value})} />
+          <label>Treatment Name</label>
+          <input type="text" className="input-field" placeholder="e.g. Scaling" value={editTreatFormData.description} onChange={e => setEditTreatFormData({...editTreatFormData, description: e.target.value})} />
+        </div>
+        <div className="grid-2">
+          <div className="input-group">
+            <label>Tooth Number(s) (Optional)</label>
+            <input type="text" className="input-field" placeholder="e.g. 14, 15, 27" value={editTreatFormData.toothNumber} onChange={e => setEditTreatFormData({...editTreatFormData, toothNumber: e.target.value})} />
+          </div>
+          <div className="input-group">
+            <label>Dentist</label>
+            <input type="text" className="input-field" value={editTreatFormData.dentist} onChange={e => setEditTreatFormData({...editTreatFormData, dentist: e.target.value})} />
+          </div>
         </div>
         <div className="grid-2">
           <div className="input-group">
             <label>Date</label>
-            <input type="date" className="input-field" value={treatFormData.date} onChange={e => setTreatFormData({...treatFormData, date: e.target.value})} />
-          </div>
-          <div className="input-group">
-            <label>Dentist</label>
-            <input type="text" className="input-field" value={treatFormData.dentist} onChange={e => setTreatFormData({...treatFormData, dentist: e.target.value})} />
+            <input type="date" className="input-field" value={editTreatFormData.date} onChange={e => setEditTreatFormData({...editTreatFormData, date: e.target.value})} />
           </div>
         </div>
-        <div style={{ background: 'rgba(255,255,255,0.05)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
-          <h3 style={{ fontSize: '0.875rem', marginBottom: '12px', opacity: 0.8 }}>Revenue Breakdown (₹)</h3>
-          <div className="grid-2">
+        <div style={{ background: 'rgba(255,255,255,0.05)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+          <h3 style={{ fontSize: '0.875rem', marginBottom: '12px', opacity: 0.8 }}>Fee Breakdown (₹)</h3>
+          <div className="grid-3">
             <div className="input-group">
               <label style={{ fontSize: '0.75rem' }}>Treatment Fee</label>
-              <input type="number" className="input-field" placeholder="0" value={treatFormData.treatmentFee} onChange={e => setTreatFormData({...treatFormData, treatmentFee: e.target.value})} />
+              <input type="number" className="input-field" value={editTreatFormData.treatmentFee} onChange={e => setEditTreatFormData({...editTreatFormData, treatmentFee: e.target.value})} />
             </div>
             <div className="input-group">
               <label style={{ fontSize: '0.75rem' }}>Surgery Fee</label>
-              <input type="number" className="input-field" placeholder="0" value={treatFormData.surgeryFee} onChange={e => setTreatFormData({...treatFormData, surgeryFee: e.target.value})} />
+              <input type="number" className="input-field" value={editTreatFormData.surgeryFee} onChange={e => setEditTreatFormData({...editTreatFormData, surgeryFee: e.target.value})} />
+            </div>
+            <div className="input-group">
+              <label style={{ fontSize: '0.75rem' }}>Consultation Fee</label>
+              <input type="number" className="input-field" value={editTreatFormData.consultationFee} onChange={e => setEditTreatFormData({...editTreatFormData, consultationFee: e.target.value})} />
             </div>
           </div>
-          <div className="input-group" style={{ marginTop: '8px' }}>
-            <label style={{ fontSize: '0.75rem' }}>Consultation Fee</label>
-            <input type="number" className="input-field" placeholder="0" value={treatFormData.consultationFee} onChange={e => setTreatFormData({...treatFormData, consultationFee: e.target.value})} />
-          </div>
           <div style={{ marginTop: '12px', textAlign: 'right', fontWeight: 700, color: 'var(--color-accent)' }}>
-            Total: ₹{(parseFloat(treatFormData.treatmentFee) || 0) + (parseFloat(treatFormData.surgeryFee) || 0) + (parseFloat(treatFormData.consultationFee) || 0)}
+            Total: ₹{(parseFloat(editTreatFormData.treatmentFee) || 0) + (parseFloat(editTreatFormData.surgeryFee) || 0) + (parseFloat(editTreatFormData.consultationFee) || 0)}
           </div>
         </div>
+        <div className="input-group" style={{ marginTop: '12px' }}>
+          <label>Clinical Notes (Optional)</label>
+          <textarea className="input-field" placeholder="Add diagnosis details or notes..." rows={3} value={editTreatFormData.notes} onChange={e => setEditTreatFormData({...editTreatFormData, notes: e.target.value})} />
+        </div>
+      </Modal>
+
+      {/* Treatment Details Modal */}
+      <Modal isOpen={showTreatDetailsModal} onClose={() => { setShowTreatDetailsModal(false); setSelectedTreatment(null); }} title="Treatment Details" footer={
+        <div className="flex-between" style={{ width: '100%' }}>
+          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteTreatment(selectedTreatment.id)}>Delete Treatment</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => { setShowTreatDetailsModal(false); setSelectedTreatment(null); }}>Close</button>
+        </div>
+      }>
+        {selectedTreatment && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '10px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--color-text)' }}>{selectedTreatment.parsed?.name}</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginTop: '4px' }}>Date: {selectedTreatment.date} · Recorded by {selectedTreatment.dentist}</p>
+            </div>
+            {selectedTreatment.parsed?.tooth_number && (
+              <div>
+                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Tooth Number(s):</span>
+                <span style={{ marginLeft: '8px', fontSize: '0.9rem', color: 'var(--color-accent)', fontWeight: 600 }}>🦷 {selectedTreatment.parsed?.tooth_number}</span>
+              </div>
+            )}
+            {selectedTreatment.parsed?.notes && (
+              <div>
+                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Clinical Notes:</span>
+                <p style={{ marginTop: '4px', fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontStyle: 'italic', background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                  {selectedTreatment.parsed?.notes}
+                </p>
+              </div>
+            )}
+            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '16px', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+              <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '10px', opacity: 0.8 }}>Fee Breakdown</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.875rem' }}>
+                <div className="flex-between"><span>Treatment Fee:</span><span>₹{selectedTreatment.treatment_fee}</span></div>
+                <div className="flex-between"><span>Surgery Fee:</span><span>₹{selectedTreatment.surgery_fee}</span></div>
+                <div className="flex-between"><span>Consultation Fee:</span><span>₹{selectedTreatment.consultation_fee}</span></div>
+                <div className="flex-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '8px', fontWeight: 700, color: 'var(--color-success)', fontSize: '1rem' }}>
+                  <span>Total Cost:</span><span>₹{selectedTreatment.cost}</span>
+                </div>
+              </div>
+            </div>
+            {selectedTreatment.parsed?.last_modified_by && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textAlign: 'right', marginTop: '10px' }}>
+                Last Modified By: {selectedTreatment.parsed?.last_modified_by} on {new Date(selectedTreatment.parsed?.last_modified_at).toLocaleString()}
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );
