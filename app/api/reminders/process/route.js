@@ -61,7 +61,7 @@ export async function POST(request) {
         const result = await sendWhatsAppReminder(patient.phone, message);
 
         if (result.success) {
-          // Log to reminder_logs
+          // Log to reminder_logs as Sent
           await supabase.from('reminder_logs').insert([
             {
               id: `rem-${uuidv4().substring(0, 8)}`,
@@ -74,7 +74,21 @@ export async function POST(request) {
             }
           ]);
           remindersSentCount++;
-          logs.push({ patient: patient.name, type: 'Appointment', timing: reminderType, channel: 'WhatsApp' });
+          logs.push({ patient: patient.name, type: 'Appointment', timing: reminderType, channel: 'WhatsApp', status: 'Sent' });
+        } else {
+          // Log to reminder_logs as Failed
+          await supabase.from('reminder_logs').insert([
+            {
+              id: `rem-${uuidv4().substring(0, 8)}`,
+              patient_id: appt.patient_id,
+              appointment_id: appt.id,
+              reminder_type: reminderType,
+              channel: 'WhatsApp',
+              status: 'Failed',
+              reminder_date: new Date().toISOString()
+            }
+          ]);
+          logs.push({ patient: patient.name, type: 'Appointment', timing: reminderType, channel: 'WhatsApp', status: 'Failed' });
         }
 
         // Mock SMS & Email channels as ready
@@ -137,7 +151,20 @@ export async function POST(request) {
             }
           ]);
           remindersSentCount++;
-          logs.push({ patient: patient.name, type: `Follow-Up (${fUp.followup_type})`, timing: reminderType, channel: 'WhatsApp' });
+          logs.push({ patient: patient.name, type: `Follow-Up (${fUp.followup_type})`, timing: reminderType, channel: 'WhatsApp', status: 'Sent' });
+        } else {
+          await supabase.from('reminder_logs').insert([
+            {
+              id: `rem-${uuidv4().substring(0, 8)}`,
+              patient_id: fUp.patient_id,
+              followup_id: fUp.id,
+              reminder_type: reminderType,
+              channel: 'WhatsApp',
+              status: 'Failed',
+              reminder_date: new Date().toISOString()
+            }
+          ]);
+          logs.push({ patient: patient.name, type: `Follow-Up (${fUp.followup_type})`, timing: reminderType, channel: 'WhatsApp', status: 'Failed' });
         }
 
         // Mock SMS & Email channels as ready

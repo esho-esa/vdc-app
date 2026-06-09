@@ -240,7 +240,66 @@ export default function RevenueDashboard() {
         </div>
       </div>
 
-      {/* Recent Payments Table */}
+      {/* Advanced Analytics Row */}
+      <div className="stats-grid" style={{ marginBottom: 'var(--space-lg)', gridTemplateColumns: 'repeat(2, 1fr)' }}>
+        {/* Dentist Performance */}
+        <div className="glass-card">
+          <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Dentist Performance (Revenue)</h2>
+          {data.dentistStats && data.dentistStats.length > 0 ? (
+            <div className="table-responsive">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Dentist</th>
+                    <th style={{ textAlign: 'right' }}>Revenue Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.dentistStats.map((d, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 500 }}>{d.dentist}</td>
+                      <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 600 }}>₹{d.revenue.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ color: 'var(--color-text-secondary)' }}>No dentist performance data available.</div>
+          )}
+        </div>
+
+        {/* Treatment Trends */}
+        <div className="glass-card">
+          <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Top Procedures</h2>
+          {data.procedureStats && data.procedureStats.length > 0 ? (
+            <div className="table-responsive">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Procedure</th>
+                    <th style={{ textAlign: 'right' }}>Times Performed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.procedureStats.map((p, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 500 }}>{p.procedure}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span className="badge badge-info">{p.count}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ color: 'var(--color-text-secondary)' }}>No procedure trend data available.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Recent Activity List */}
       <div className="glass-card-flat">
         <h2 className="section-title" style={{ marginBottom: 'var(--space-md)' }}>Recent Payments & Receipts</h2>
         {data.recentPayments.length > 0 ? (

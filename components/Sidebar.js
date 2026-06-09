@@ -33,9 +33,10 @@ export default function Sidebar({ isOpen, onClose }) {
 
   if (role === 'admin' || role === 'super_admin') {
     fullNav.splice(1, 0, { label: 'Revenue', href: '/dashboard/revenue', icon: '💰' });
-    fullNav.splice(3, 0, { label: 'Outstanding Payments', href: '/reports/outstanding', icon: '📋' });
     fullNav.splice(4, 0, { label: 'Follow-Ups & Insights', href: '/reports/follow-ups', icon: '📈' });
-    fullNav.push({ label: 'Staff Management', href: '/staff', icon: '👥' });
+    fullNav.splice(5, 0, { label: 'Reminders History', href: '/reports/reminders', icon: '📱' });
+    fullNav.splice(6, 0, { label: 'Outstanding Dues', href: '/reports/outstanding', icon: '⏳' });
+    fullNav.splice(9, 0, { label: 'Staff Management', href: '/staff', icon: '👥' });
   } else if (role === 'accountant') {
     fullNav.splice(1, 0, { label: 'Revenue', href: '/dashboard/revenue', icon: '💰' });
     fullNav.splice(3, 0, { label: 'Outstanding Payments', href: '/reports/outstanding', icon: '📋' });

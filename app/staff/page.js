@@ -8,6 +8,23 @@ export default function StaffManagementPage() {
   const [activities, setActivities] = useState([]);
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const router = import('next/navigation').then(m => m.useRouter()).catch(() => null);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        if (parsed.role !== 'admin' && parsed.role !== 'super_admin') {
+          window.location.href = '/';
+        }
+      } catch (e) {
+        window.location.href = '/';
+      }
+    } else {
+      window.location.href = '/login';
+    }
+  }, []);
 
   // Form State
   const [showModal, setShowModal] = useState(false);

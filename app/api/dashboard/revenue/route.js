@@ -17,7 +17,7 @@ export async function GET() {
         .order('date', { ascending: false }),
       supabase
         .from('treatments')
-        .select('id, date, cost, surgery_fee, patient_id, patients(name)')
+        .select('id, date, cost, surgery_fee, patient_id, dentist, description, patients(name)')
         .order('date', { ascending: false }),
       supabase
         .from('payments')
@@ -50,12 +50,34 @@ export async function GET() {
       if (date && date.substring(0, 4) === currentYear) yearlyBilled += amt;
     };
 
+    const dentistPerformance = {};
+    const treatmentTrends = {};
+
     rxRows.forEach((rx) => {
       processBilledRecord(rx.date, parseFloat(rx.total_amount) || 0);
     });
     txRows.forEach((tx) => {
-      processBilledRecord(tx.date, parseFloat(tx.cost) || 0);
+      const amt = parseFloat(tx.cost) || 0;
+      processBilledRecord(tx.date, amt);
+
+      const dentistName = tx.dentist || 'Unknown Dentist';
+      dentistPerformance[dentistName] = (dentistPerformance[dentistName] || 0) + amt;
+
+      // Extract base procedure name for trends (e.g., if description is JSON string)
+      let procName = 'Other';
+      if (tx.description) {
+        try {
+          const parsed = JSON.parse(tx.description);
+          procName = parsed.name || parsed.description || 'Other';
+        } catch(e) {
+          procName = tx.description;
+        }
+      }
+      treatmentTrends[procName] = (treatmentTrends[procName] || 0) + 1;
     });
+
+    const dentistStats = Object.keys(dentistPerformance).map(k => ({ dentist: k, revenue: dentistPerformance[k] })).sort((a,b) => b.revenue - a.revenue);
+    const procedureStats = Object.keys(treatmentTrends).map(k => ({ procedure: k, count: treatmentTrends[k] })).sort((a,b) => b.count - a.count).slice(0, 5);
 
     // 2. Calculate Collected Revenue (payments)
     let todayCollected = 0;
@@ -144,6 +166,8 @@ export async function GET() {
       
       monthlyTrend,
       recentPayments,
+      dentistStats,
+      procedureStats,
     });
   } catch (error) {
     console.error('Revenue API error:', error);
@@ -166,6 +190,8 @@ export async function GET() {
         totalOutstanding: 0,
         monthlyTrend: [],
         recentPayments: [],
+        dentistStats: [],
+        procedureStats: [],
       },
       { status: 200 }
     );

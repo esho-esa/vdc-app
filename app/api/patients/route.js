@@ -11,7 +11,7 @@ export async function GET(request) {
 
     const { data, error } = await supabase
       .from('patients')
-      .select('*')
+      .select('id, name, phone, email, age, address, medical_history, is_deleted, created_at, updated_at')
       .eq('is_deleted', showBin ? 1 : 0)
       .order('created_at', { ascending: false })
 

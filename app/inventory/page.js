@@ -252,18 +252,15 @@ export default function InventoryDashboard() {
 
   async function handleCreatePO(e) {
     e.preventDefault();
-    if (!poSupplierId || poItemsList.some(i => !i.itemId)) {
-      alert('Please select a Supplier and items for all rows.');
-      return;
-    }
+    if (!poSupplierId) return alert('Select a supplier');
+    
+    // Filter out items with empty IDs
+    const validItems = poItemsList.filter(i => i.itemId);
+    if (validItems.length === 0) return alert('Add at least one item');
 
-    const totalPOAmount = poItemsList.reduce((sum, item) => {
-      const qty = parseInt(item.quantity) || 0;
-      const price = parseFloat(item.unitPrice) || 0;
-      return sum + (qty * price);
-    }, 0);
+    const totalAmt = validItems.reduce((sum, item) => sum + (parseFloat(item.quantity) * parseFloat(item.unitPrice)), 0);
 
-    const poItemsPayload = poItemsList.map(item => {
+    const poItemsPayload = validItems.map(item => {
       const match = items.find(i => i.id === item.itemId);
       return {
         itemId: item.itemId,
@@ -281,7 +278,7 @@ export default function InventoryDashboard() {
           supplierId: poSupplierId,
           orderDate: new Date().toISOString().split('T')[0],
           status: poStatus,
-          totalAmount: totalPOAmount,
+          totalAmount: totalAmt,
           items: poItemsPayload
         })
       });
@@ -289,13 +286,51 @@ export default function InventoryDashboard() {
         setShowPOModal(false);
         setPOSupplierId('');
         setPOItemsList([{ itemId: '', quantity: '1', unitPrice: '0' }]);
+        setPOStatus('Draft');
         fetchData();
       } else {
-        alert('Failed to draft Purchase Order');
+        alert('Failed to create Purchase Order');
       }
     } catch (e) {
       console.error(e);
     }
+  }
+
+  function handleAutoDraftPO() {
+    const lowStockItems = (Array.isArray(items) ? items : []).filter(item => item && item.current_stock <= item.minimum_stock);
+    if (lowStockItems.length === 0) {
+      return alert('All items have sufficient stock. No recommendations available.');
+    }
+    
+    // Group low stock items by supplier
+    const itemsBySupplier = {};
+    lowStockItems.forEach(item => {
+      const supId = item.supplier_id || 'unlinked';
+      if (!itemsBySupplier[supId]) itemsBySupplier[supId] = [];
+      
+      const orderQty = Math.max(1, (item.minimum_stock * 2) - item.current_stock);
+      itemsBySupplier[supId].push({
+        itemId: item.id,
+        quantity: orderQty.toString(),
+        unitPrice: item.purchase_price ? item.purchase_price.toString() : '0'
+      });
+    });
+
+    // Auto-select the supplier with the most items, or just the first valid one
+    const supplierIds = Object.keys(itemsBySupplier).filter(id => id !== 'unlinked');
+    if (supplierIds.length > 0) {
+      const bestSupplierId = supplierIds[0]; // simplistic selection
+      setPOSupplierId(bestSupplierId);
+      setPOItemsList(itemsBySupplier[bestSupplierId]);
+    } else {
+      // If all unlinked
+      setPOSupplierId('');
+      setPOItemsList(itemsBySupplier['unlinked']);
+    }
+
+    setPOStatus('Draft');
+    setActiveTab('po');
+    setShowPOModal(true);
   }
 
   async function handleReceivePO(poId) {
@@ -454,14 +489,19 @@ export default function InventoryDashboard() {
             </button>
           )}
           {activeTab === 'po' && (
-            <button className="btn btn-primary btn-sm" onClick={() => {
-              setPOSupplierId('');
-              setPOItemsList([{ itemId: '', quantity: '1', unitPrice: '0' }]);
-              setPOStatus('Draft');
-              setShowPOModal(true);
-            }}>
-              + Create Purchase Order
-            </button>
+            <div className="header-actions">
+              <button className="btn btn-secondary" onClick={handleAutoDraftPO} style={{ background: 'var(--color-warning-light)', color: 'var(--color-warning)' }}>
+                ⚡ Auto-Draft PO for Low Stock
+              </button>
+              <button className="btn btn-primary" onClick={() => {
+                setPOSupplierId('');
+                setPOItemsList([{ itemId: '', quantity: '1', unitPrice: '0' }]);
+                setPOStatus('Draft');
+                setShowPOModal(true);
+              }}>
+                + Create Purchase Order
+              </button>
+            </div>
           )}
         </div>
       </div>

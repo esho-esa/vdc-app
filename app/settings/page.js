@@ -22,6 +22,10 @@ export default function SettingsPage() {
     let user = {};
     try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch (e) { /* corrupted */ }
     setCurrentUser(user);
+    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+      window.location.href = '/';
+      return;
+    }
     
     Promise.all([
       fetch('/api/settings').then(res => res.json()),
