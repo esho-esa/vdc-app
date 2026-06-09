@@ -45,12 +45,15 @@ export async function GET(request) {
 
     // Fetch payments received (Revenue Cash) and expenses in parallel
     const [
-      { data: payments },
-      { data: expenses }
+      { data: payments, error: payError },
+      { data: expenses, error: expError }
     ] = await Promise.all([
       supabase.from('payments').select('payment_date, amount, payment_method, patients(name)').gte('payment_date', startDate),
       supabase.from('expenses').select('expense_date, amount, vendor_name, payment_method, notes, expense_categories(name)').gte('expense_date', startDate)
     ]);
+
+    if (payError) throw payError;
+    if (expError) throw expError;
 
     const ledgerItems = [];
 

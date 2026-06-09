@@ -23,11 +23,12 @@ export async function GET() {
         .from('payments')
         .select('id, payment_date, amount, payment_method, reference_number, patient_id, patients(name)')
         .order('payment_date', { ascending: false })
-        .then(res => res.error ? { data: [] } : res)
     ]);
 
     if (rxError) throw rxError;
     if (txError) throw txError;
+    // We do NOT suppress the payment error. If payments fails, the entire dashboard correctly halts and logs the true cause.
+    if (payments.error) throw payments.error;
 
     const rxRows = prescriptions || [];
     const txRows = treatments || [];
@@ -103,6 +104,9 @@ export async function GET() {
     });
 
     // 3. Calculate Outstanding Revenue (Billed - Collected)
+    // IMPORTANT: Outstanding today doesn't mean "today's billed - today's collected" 
+    // It means "Outstanding balance generated today" 
+    // Wait, let's keep it strictly as Billed - Collected for the period, ensuring it never drops below 0.
     const todayOutstanding = Math.max(0, todayBilled - todayCollected);
     const monthlyOutstanding = Math.max(0, monthlyBilled - monthlyCollected);
     const yearlyOutstanding = Math.max(0, yearlyBilled - yearlyCollected);

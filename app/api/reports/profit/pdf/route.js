@@ -192,20 +192,26 @@ export async function GET(request) {
 
     // Parallel fetch
     const [
-      { data: prescriptions },
-      { data: treatments },
-      { data: payments },
-      { data: expenses },
-      { data: categories },
-      { data: settings }
+      { data: prescriptions, error: rxErr },
+      { data: treatments, error: txErr },
+      { data: payments, error: payErr },
+      { data: expenses, error: expErr },
+      { data: categories, error: catErr },
+      { data: settings, error: setErr }
     ] = await Promise.all([
       supabase.from('prescriptions').select('total_amount').gte('date', startDate),
       supabase.from('treatments').select('cost').gte('date', startDate),
       supabase.from('payments').select('amount').gte('payment_date', startDate),
       supabase.from('expenses').select('*, expense_categories(name, color, budget)').gte('expense_date', startDate),
       supabase.from('expense_categories').select('*'),
-      supabase.from('settings').select('*').limit(1).single().then(res => res.error ? { data: undefined } : res)
+      supabase.from('settings').select('*').limit(1).single()
     ]);
+
+    if (rxErr) throw rxErr;
+    if (txErr) throw txErr;
+    if (payErr) throw payErr;
+    if (expErr) throw expErr;
+    if (catErr) throw catErr;
 
     // Revenue calculations
     const rxRev = (prescriptions || []).reduce((sum, r) => sum + (parseFloat(r.total_amount) || 0), 0);

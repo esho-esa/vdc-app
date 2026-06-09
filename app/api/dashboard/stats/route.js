@@ -68,14 +68,12 @@ export async function GET(request) {
           .from('payments')
           .select('amount')
           .eq('payment_date', today)
-          .then(res => res.error ? { data: [] } : res)
       )
       // 9. Payments: total (collected)
       queries.push(
         supabase
           .from('payments')
           .select('amount')
-          .then(res => res.error ? { data: [] } : res)
       )
     }
 

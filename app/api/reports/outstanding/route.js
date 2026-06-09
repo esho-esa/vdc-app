@@ -23,8 +23,9 @@ export async function GET(request) {
     // 3. Fetch all payments to aggregate paid amount
     const { data: payments, error: payError } = await supabase
       .from('payments')
-      .select('patient_id, amount')
-      .then(res => res.error ? { data: [] } : res);
+      .select('patient_id, amount');
+
+    if (payError) throw payError;
 
     // Aggregates map
     const patientBilling = {};
