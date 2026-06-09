@@ -12,7 +12,8 @@ export default function RevenueDashboard() {
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
-      const parsed = JSON.parse(savedUser);
+      let parsed = {};
+      try { parsed = JSON.parse(savedUser); } catch (e) { /* corrupted */ }
       if (parsed.role !== 'admin') {
         router.replace('/');
         return;

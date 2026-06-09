@@ -44,7 +44,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedUser) { try { setUser(JSON.parse(savedUser)); } catch (e) { /* corrupted */ } }
     
     fetchDashboardData(true);
     const interval = setInterval(() => fetchDashboardData(false), 30000); // 30s silent refresh
@@ -59,20 +59,26 @@ export default function Dashboard() {
 
       // Only 3 API calls instead of 5: stats (includes activity + counts), patients (for appointment modal), appointments
       const [sData, pData, aData] = await Promise.all([
-        fetch(`/api/dashboard/stats?role=${role}`).then(r => r.json()),
-        fetch('/api/patients').then(r => r.json()),
-        fetch('/api/appointments').then(r => r.json()),
+        fetch(`/api/dashboard/stats?role=${role}`).then(r => r.json()).catch(() => ({})),
+        fetch('/api/patients').then(r => r.json()).catch(() => []),
+        fetch('/api/appointments').then(r => r.json()).catch(() => []),
       ]);
 
-      setStats(sData);
-      setActivityFeed(sData.activityFeed || []);
-      setPatients(pData || []);
-      setAppointments(aData || []);
+      setStats(sData && typeof sData === 'object' && !Array.isArray(sData) ? sData : { revenue: 0, statusCounts: {}, totalPatients: 0 });
+      setActivityFeed(sData && Array.isArray(sData.activityFeed) ? sData.activityFeed : []);
+      setPatients(Array.isArray(pData) ? pData : []);
+      setAppointments(Array.isArray(aData) ? aData : []);
 
       // Fetch notifications separately (non-blocking)
-      fetch('/api/notifications').then(r => r.json()).then(n => setNotifications(n || [])).catch(() => {});
+      fetch('/api/notifications')
+        .then(r => r.json())
+        .then(n => setNotifications(Array.isArray(n) ? n : []))
+        .catch(() => {});
       // Fetch followups separately (non-blocking)
-      fetch('/api/follow-ups').then(r => r.json()).then(f => setFollowups(f || [])).catch(() => {});
+      fetch('/api/follow-ups')
+        .then(r => r.json())
+        .then(f => setFollowups(Array.isArray(f) ? f : []))
+        .catch(() => {});
     } catch (e) {
       console.error(e);
     } finally {
@@ -81,14 +87,14 @@ export default function Dashboard() {
   }
 
   const today = new Date().toISOString().split('T')[0]; // Current date
-  const todayAppts = appointments.filter(a => a.date === today);
-  const upcomingAppts = appointments.filter(a => a.date > today).slice(0, 4);
+  const todayAppts = (Array.isArray(appointments) ? appointments : []).filter(a => a && a.date === today);
+  const upcomingAppts = (Array.isArray(appointments) ? appointments : []).filter(a => a && a.date > today).slice(0, 4);
   
-  const todaysFollowups = followups.filter(f => f.followup_date === today && f.status === 'Scheduled');
-  const upcomingFollowups = followups.filter(f => f.followup_date > today && f.status === 'Scheduled').slice(0, 5);
-  const missedFollowups = followups.filter(f => f.status === 'Missed' || (f.followup_date < today && f.status === 'Scheduled'));
+  const todaysFollowups = (Array.isArray(followups) ? followups : []).filter(f => f && f.followup_date === today && f.status === 'Scheduled');
+  const upcomingFollowups = (Array.isArray(followups) ? followups : []).filter(f => f && f.followup_date > today && f.status === 'Scheduled').slice(0, 5);
+  const missedFollowups = (Array.isArray(followups) ? followups : []).filter(f => f && (f.status === 'Missed' || (f.followup_date < today && f.status === 'Scheduled')));
 
-  const recentNotifs = notifications.slice(0, 4);
+  const recentNotifs = (Array.isArray(notifications) ? notifications : []).slice(0, 4);
 
   const notifIcons = { missed: '⚠️', upcoming: '📅', reminder: '💬', alert: '🔔' };
   const notifIconColors = { missed: 'var(--color-danger-light)', upcoming: 'var(--color-accent-light)', reminder: 'var(--color-success-light)', alert: 'var(--color-warning-light)' };

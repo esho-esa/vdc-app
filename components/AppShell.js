@@ -18,7 +18,7 @@ export default function AppShell({ children }) {
 
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      try { setUser(JSON.parse(savedUser)); } catch (e) { /* corrupted user data */ }
     }
 
     // Call heartbeat immediately and then every 30 seconds

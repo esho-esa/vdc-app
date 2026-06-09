@@ -66,26 +66,28 @@ export default function InventoryDashboard() {
     setLoading(true);
     try {
       const [itemsRes, suppliersRes, poRes, reportsRes] = await Promise.all([
-        fetch('/api/inventory/items'),
-        fetch('/api/suppliers'),
-        fetch('/api/purchase-orders'),
-        fetch('/api/reports/inventory')
+        fetch('/api/inventory/items').catch(() => null),
+        fetch('/api/suppliers').catch(() => null),
+        fetch('/api/purchase-orders').catch(() => null),
+        fetch('/api/reports/inventory').catch(() => null)
       ]);
 
-      const [itemsData, suppliersData, poData, reportsData] = await Promise.all([
-        itemsRes.json(),
-        suppliersRes.json(),
-        poRes.json(),
-        reportsRes.json()
-      ]);
+      const itemsData = itemsRes ? await itemsRes.json().catch(() => []) : [];
+      const suppliersData = suppliersRes ? await suppliersRes.json().catch(() => []) : [];
+      const poData = poRes ? await poRes.json().catch(() => []) : [];
+      const reportsDataVal = reportsRes ? await reportsRes.json().catch(() => ({})) : {};
 
-      if (!itemsData.error) setItems(itemsData);
-      if (!suppliersData.error) setSuppliers(suppliersData);
-      if (!poData.error) setPurchaseOrders(poData);
-      if (!reportsData.error) setReportsData(reportsData);
+      setItems(Array.isArray(itemsData) ? itemsData : []);
+      setSuppliers(Array.isArray(suppliersData) ? suppliersData : []);
+      setPurchaseOrders(Array.isArray(poData) ? poData : []);
+      setReportsData((reportsDataVal && !reportsDataVal.error && typeof reportsDataVal === 'object') ? reportsDataVal : null);
 
     } catch (e) {
       console.error('Error fetching inventory data:', e);
+      setItems([]);
+      setSuppliers([]);
+      setPurchaseOrders([]);
+      setReportsData(null);
     } finally {
       setLoading(false);
     }
@@ -404,7 +406,8 @@ export default function InventoryDashboard() {
   };
 
   // --- Filtering client-side ---
-  const filteredItems = items.filter(item => {
+  const filteredItems = (Array.isArray(items) ? items : []).filter(item => {
+    if (!item || !item.item_name) return false;
     const matchesSearch = item.item_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase())) ||
                           item.category.toLowerCase().includes(searchQuery.toLowerCase());

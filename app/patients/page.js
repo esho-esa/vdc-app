@@ -19,9 +19,10 @@ export default function PatientsPage() {
     try {
       const res = await fetch(`/api/patients${isBin ? '?bin=true' : ''}`);
       const data = await res.json();
-      setPatients(data);
+      setPatients(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch patients:', error);
+      setPatients([]);
     } finally {
       setLoading(false);
     }

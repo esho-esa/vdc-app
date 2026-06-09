@@ -19,15 +19,16 @@ export default function NotificationsPage() {
     try {
       const res = await fetch('/api/notifications');
       const data = await res.json();
-      setNotifs(data);
+      setNotifs(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error(e);
+      setNotifs([]);
     } finally {
       setLoading(false);
     }
   }
 
-  const filtered = activeTab === 'All' ? notifs : notifs.filter(n => n.type === typeMap[activeTab]);
+  const filtered = Array.isArray(notifs) ? (activeTab === 'All' ? notifs : notifs.filter(n => n && n.type === typeMap[activeTab])) : [];
 
   async function markAllRead() {
     try {

@@ -122,7 +122,7 @@ export default function PatientProfile({ params }) {
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedUser) { try { setUser(JSON.parse(savedUser)); } catch (e) { /* corrupted */ } }
 
     fetch(`/api/patients/${id}`)
       .then(res => res.json())
@@ -153,11 +153,12 @@ export default function PatientProfile({ params }) {
     fetch('/api/inventory/items')
       .then(res => res.json())
       .then(d => {
-        if (!d.error) {
-          setInventoryItems(d);
-        }
+        setInventoryItems(Array.isArray(d) ? d : []);
       })
-      .catch(err => console.error('Failed to fetch inventory:', err));
+      .catch(err => {
+        console.error('Failed to fetch inventory:', err);
+        setInventoryItems([]);
+      });
   }
 
   function getAutoRecipe(description, inventory) {
@@ -228,12 +229,13 @@ export default function PatientProfile({ params }) {
     fetch(`/api/follow-ups?patientId=${id}`)
       .then(res => res.json())
       .then(d => {
-        if (!d.error) {
-          setPatientFollowups(d);
-        }
+        setPatientFollowups(Array.isArray(d) ? d : []);
         setFollowupsLoading(false);
       })
-      .catch(() => setFollowupsLoading(false));
+      .catch(() => {
+        setPatientFollowups([]);
+        setFollowupsLoading(false);
+      });
   }
 
   async function handleUpdateFollowupStatus(followupId, newStatus) {
@@ -276,12 +278,19 @@ export default function PatientProfile({ params }) {
     fetch(`/api/patients/${id}/clinical-records`)
       .then(res => res.json())
       .then(d => {
-        if (!d.error) {
-          setRecords(d);
+        if (d && !d.error && typeof d === 'object') {
+          setRecords({
+            photos: Array.isArray(d.photos) ? d.photos : [],
+            xrays: Array.isArray(d.xrays) ? d.xrays : [],
+            files: Array.isArray(d.files) ? d.files : []
+          });
         }
         setRecordsLoading(false);
       })
-      .catch(() => setRecordsLoading(false));
+      .catch(() => {
+        setRecords({ photos: [], xrays: [], files: [] });
+        setRecordsLoading(false);
+      });
   }
 
   // Sync comparison sliders selections

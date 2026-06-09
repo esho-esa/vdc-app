@@ -64,9 +64,10 @@ export default function AppointmentsPage() {
     try {
       const res = await fetch('/api/appointments');
       const data = await res.json();
-      setAppointments(data);
+      setAppointments(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch appointments:', error);
+      setAppointments([]);
     }
   }
 
@@ -74,9 +75,10 @@ export default function AppointmentsPage() {
     try {
       const res = await fetch('/api/patients');
       const data = await res.json();
-      setPatients(data);
+      setPatients(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch patients:', error);
+      setPatients([]);
     }
   }
 
@@ -84,9 +86,10 @@ export default function AppointmentsPage() {
     try {
       const res = await fetch('/api/follow-ups');
       const data = await res.json();
-      setFollowups(data);
+      setFollowups(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch follow-ups:', error);
+      setFollowups([]);
     }
   }
 
@@ -99,7 +102,7 @@ export default function AppointmentsPage() {
       });
       if (res.ok) {
         const updated = await res.json();
-        setFollowups(followups.map(f => f.id === fId ? updated : f));
+        setFollowups((Array.isArray(followups) ? followups : []).map(f => f.id === fId ? updated : f));
         setSelectedFollowup(updated);
       }
     } catch (error) {
@@ -232,18 +235,22 @@ export default function AppointmentsPage() {
 
   const apptsByDate = useMemo(() => {
     const map = {};
-    appointments.forEach(a => {
-      if (!map[a.date]) map[a.date] = [];
-      map[a.date].push(a);
+    (Array.isArray(appointments) ? appointments : []).forEach(a => {
+      if (a && a.date) {
+        if (!map[a.date]) map[a.date] = [];
+        map[a.date].push(a);
+      }
     });
     return map;
   }, [appointments]);
 
   const followupsByDate = useMemo(() => {
     const map = {};
-    followups.forEach(f => {
-      if (!map[f.followup_date]) map[f.followup_date] = [];
-      map[f.followup_date].push(f);
+    (Array.isArray(followups) ? followups : []).forEach(f => {
+      if (f && f.followup_date) {
+        if (!map[f.followup_date]) map[f.followup_date] = [];
+        map[f.followup_date].push(f);
+      }
     });
     return map;
   }, [followups]);

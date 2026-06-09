@@ -78,7 +78,7 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedUser) { try { setUser(JSON.parse(savedUser)); } catch (e) { /* corrupted */ } }
     fetchAllData();
   }, [filters]);
 

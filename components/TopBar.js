@@ -11,13 +11,15 @@ export default function TopBar({ onMenuClick }) {
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedUser) {
+      try { setUser(JSON.parse(savedUser)); } catch (e) { /* corrupted user data */ }
+    }
     
     const fetchUnread = () => {
       fetch('/api/notifications/unread-count')
         .then(res => res.json())
-        .then(data => setUnreadCount(data.count))
-        .catch(console.error);
+        .then(data => setUnreadCount((data && typeof data.count === 'number') ? data.count : 0))
+        .catch(() => {});
     };
 
     fetchUnread();

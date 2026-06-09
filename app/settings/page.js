@@ -19,7 +19,8 @@ export default function SettingsPage() {
   const [isStaffSaving, setIsStaffSaving] = useState(false);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    let user = {};
+    try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch (e) { /* corrupted */ }
     setCurrentUser(user);
     
     Promise.all([
@@ -39,7 +40,7 @@ export default function SettingsPage() {
           reminderTemplate: settingsData.whatsapp_template || settingsData.reminder_template || ''
         });
       }
-      setStaff(staffData.error ? [] : staffData);
+      setStaff(Array.isArray(staffData) ? staffData : []);
       setLoading(false);
     }).catch(console.error);
   }, []);

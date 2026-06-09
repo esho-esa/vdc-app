@@ -20,7 +20,8 @@ export default function FollowUpsReport() {
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
-      const parsed = JSON.parse(savedUser);
+      let parsed = {};
+      try { parsed = JSON.parse(savedUser); } catch (e) { /* corrupted */ }
       if (parsed.role !== 'admin') {
         router.replace('/');
         return;
@@ -38,10 +39,10 @@ export default function FollowUpsReport() {
     fetch('/api/reports/follow-ups')
       .then((res) => res.json())
       .then((d) => {
-        if (!d.error) {
-          setMetrics(d.metrics);
-          setFollowUpsList(d.followUpsList || []);
-          setMissedPatientsList(d.missedPatientsList || []);
+        if (d && !d.error && typeof d === 'object') {
+          setMetrics(d.metrics || { completionRate: 0, missedRate: 0, returningPatientPercent: 0, counts: { Scheduled: 0, Completed: 0, Missed: 0, Cancelled: 0 } });
+          setFollowUpsList(Array.isArray(d.followUpsList) ? d.followUpsList : []);
+          setMissedPatientsList(Array.isArray(d.missedPatientsList) ? d.missedPatientsList : []);
         }
         setLoading(false);
       })
