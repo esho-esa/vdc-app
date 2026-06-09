@@ -64,7 +64,7 @@ export async function POST(request) {
           // Log to reminder_logs as Sent
           await supabase.from('reminder_logs').insert([
             {
-              id: `rem-${uuidv4().substring(0, 8)}`,
+              id: result.sid,
               patient_id: appt.patient_id,
               appointment_id: appt.id,
               reminder_type: reminderType,
@@ -79,7 +79,7 @@ export async function POST(request) {
           // Log to reminder_logs as Failed
           await supabase.from('reminder_logs').insert([
             {
-              id: `rem-${uuidv4().substring(0, 8)}`,
+              id: result.sid,
               patient_id: appt.patient_id,
               appointment_id: appt.id,
               reminder_type: reminderType,
@@ -141,7 +141,7 @@ export async function POST(request) {
         if (result.success) {
           await supabase.from('reminder_logs').insert([
             {
-              id: `rem-${uuidv4().substring(0, 8)}`,
+              id: result.sid,
               patient_id: fUp.patient_id,
               followup_id: fUp.id,
               reminder_type: reminderType,
@@ -155,7 +155,7 @@ export async function POST(request) {
         } else {
           await supabase.from('reminder_logs').insert([
             {
-              id: `rem-${uuidv4().substring(0, 8)}`,
+              id: result.sid,
               patient_id: fUp.patient_id,
               followup_id: fUp.id,
               reminder_type: reminderType,
@@ -170,6 +170,105 @@ export async function POST(request) {
         // Mock SMS & Email channels as ready
         console.log(`[SMS Follow-up Ready] Send to: ${patient.phone} | Msg: ${message}`);
         console.log(`[Email Follow-up Ready] Send to: ${patient.email || 'no-email@example.com'} | Subject: Follow-Up Notice | Msg: ${message}`);
+      }
+    }
+
+    // --- 3. PROCESS OUTSTANDING PAYMENT REMINDERS ---
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString();
+
+    // Re-use logic from outstanding reports to get pending > 0
+    const { data: outPatients } = await supabase.from('patients').select('id, name, phone, email').eq('is_deleted', 0);
+    const { data: outTreatments } = await supabase.from('treatments').select('patient_id, cost');
+    const { data: outPayments } = await supabase.from('payments').select('patient_id, amount');
+
+    if (outPatients && outTreatments && outPayments) {
+      const patientBilling = {};
+      outTreatments.forEach(tx => {
+        if (!patientBilling[tx.patient_id]) patientBilling[tx.patient_id] = { billed: 0, paid: 0 };
+        patientBilling[tx.patient_id].billed += parseFloat(tx.cost) || 0;
+      });
+      outPayments.forEach(p => {
+        if (!patientBilling[p.patient_id]) patientBilling[p.patient_id] = { billed: 0, paid: 0 };
+        patientBilling[p.patient_id].paid += parseFloat(p.amount) || 0;
+      });
+
+      for (const p of outPatients) {
+        if (!p.phone) continue;
+        const billing = patientBilling[p.id] || { billed: 0, paid: 0 };
+        const pending = Math.max(0, billing.billed - billing.paid);
+
+        if (pending > 0.01) {
+          // Check if we already sent an outstanding reminder recently (e.g., in the last 7 days)
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+          
+          const { data: recentLog } = await supabase.from('reminder_logs')
+            .select('id')
+            .eq('patient_id', p.id)
+            .eq('reminder_type', 'Outstanding')
+            .gte('reminder_date', sevenDaysAgo.toISOString())
+            .maybeSingle();
+
+          if (!recentLog) {
+            const message = `Hello ${p.name}, this is a gentle reminder from Victoria Dental Care. Your account has an outstanding balance of ₹${pending.toFixed(2)}. Please arrange for payment at your earliest convenience. If you have already paid, kindly ignore this message.`;
+            const result = await sendWhatsAppReminder(p.phone, message);
+
+            await supabase.from('reminder_logs').insert([
+              {
+                id: result.sid,
+                patient_id: p.id,
+                reminder_type: 'Outstanding',
+                channel: 'WhatsApp',
+                status: result.success ? 'Sent' : 'Failed',
+                reminder_date: new Date().toISOString()
+              }
+            ]);
+            
+            if (result.success) remindersSentCount++;
+            logs.push({ patient: p.name, type: 'Outstanding', timing: 'Overdue', channel: 'WhatsApp', status: result.success ? 'Sent' : 'Failed' });
+          }
+        }
+      }
+    }
+
+    // --- 4. RETRY LOGIC FOR FAILED MESSAGES ---
+    // Retry messages that failed in the last 3 days
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+    const { data: failedLogs } = await supabase
+      .from('reminder_logs')
+      .select('*, patients(phone, name)')
+      .eq('status', 'Failed')
+      .eq('channel', 'WhatsApp')
+      .gte('reminder_date', threeDaysAgo.toISOString());
+
+    if (failedLogs && failedLogs.length > 0) {
+      for (const fLog of failedLogs) {
+        const patient = fLog.patients;
+        if (!patient || !patient.phone) continue;
+
+        // Reconstruct message
+        let message = `Hello ${patient.name}, this is Victoria Dental Care calling regarding your missed notification. Please contact us.`;
+        if (fLog.reminder_type === 'Outstanding') {
+          message = `Hello ${patient.name}, this is a gentle reminder from Victoria Dental Care regarding your outstanding balance. Please contact us.`;
+        }
+
+        const retryResult = await sendWhatsAppReminder(patient.phone, message);
+
+        if (retryResult.success) {
+          // Update the failed log with the new SID and Sent status
+          await supabase.from('reminder_logs').update({
+            id: retryResult.sid,
+            status: 'Sent',
+            reminder_date: new Date().toISOString()
+          }).eq('id', fLog.id);
+          
+          remindersSentCount++;
+          logs.push({ patient: patient.name, type: 'Retry', timing: fLog.reminder_type, channel: 'WhatsApp', status: 'Sent' });
+        }
       }
     }
 
